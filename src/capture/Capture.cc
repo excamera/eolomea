@@ -45,7 +45,7 @@
 #include "Config.hh"
 #include "display.hh"
 #include "chunk.hh"
-#include "barcode.hh"
+//#include "barcode.hh"
 
 using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
