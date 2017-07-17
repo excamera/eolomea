@@ -69,7 +69,7 @@ static IDeckLinkInput*  g_deckLinkInput = NULL;
 static std::ofstream    logfile;
 
 static int64_t  g_frameCount = 0;
-//static uint64_t g_validFrameCount = 0;
+static uint64_t g_validFrameCount = 0;
 
 DeckLinkCaptureDelegate::DeckLinkCaptureDelegate() :
     m_refCount(1)
@@ -94,6 +94,9 @@ ULONG DeckLinkCaptureDelegate::Release(void)
 
 void DeckLinkCaptureDelegate::preview(void*, int) {}
 
+
+// TODO(squeakymouse) this is the function that gets called when a frame arrives. 
+// TODO(squeakymouse) have the frames be put into a list/queue/vector that can be read by the playback code.
 HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket*)
 {
     void*                               frameBytes;
@@ -165,36 +168,37 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
                    framesize);
 
             /* IMPORTANT: log the timestamps  */
-            // if (barcodes.first != 0xFFFFFFFFFFFFFFFF
-            //     || barcodes.second != 0xFFFFFFFFFFFFFFFF) {
-            //     if (logfile.is_open())
-            //         logfile << g_validFrameCount << ","
-            //                 << barcodes.first << "," << barcodes.second << ","
-            //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-            //                 << decklink_hardware_timestamp << ","
-            //                 << decklink_frame_reference_timestamp << ","
-            //                 << decklink_frame_reference_duration
-            //                 << std::endl;
-            //     else
-            //         std::cout   << g_validFrameCount << ","
-            //                     << barcodes.first << "," << barcodes.second << ","
-            //                     << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-            //                     << decklink_hardware_timestamp << ","
-            //                     << decklink_frame_reference_timestamp << ","
-            //                     << decklink_frame_reference_duration
-            //                     << std::endl;
-            //     g_validFrameCount++;
+            if (barcodes.first != 0xFFFFFFFFFFFFFFFF
+                || barcodes.second != 0xFFFFFFFFFFFFFFFF) {
 
-            //     if (g_videoOutputFile != -1)
-            //     {
-            //         std::lock_guard<std::mutex> lg(frame_queue_lock);
-            //         videoFrame->AddRef();
-            //         frame_queue.push(videoFrame);
-            //         // ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
-            //         // if (ret < 0)
-            //         //     fprintf(stderr, "Cannot write to file.\n");
-            //     }
-            // }
+                // if (logfile.is_open())
+                //     logfile << g_validFrameCount << ","
+                //             << barcodes.first << "," << barcodes.second << ","
+                //             << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+                //             << decklink_hardware_timestamp << ","
+                //             << decklink_frame_reference_timestamp << ","
+                //             << decklink_frame_reference_duration
+                //             << std::endl;
+                // else
+                //     std::cout   << g_validFrameCount << ","
+                //                 << barcodes.first << "," << barcodes.second << ","
+                //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+                //                 << decklink_hardware_timestamp << ","
+                //                 << decklink_frame_reference_timestamp << ","
+                //                 << decklink_frame_reference_duration
+                //                 << std::endl;
+                g_validFrameCount++;
+
+                if (g_videoOutputFile != -1)
+                {
+                    std::lock_guard<std::mutex> lg(frame_queue_lock);
+                    videoFrame->AddRef();
+                    frame_queue.push(videoFrame);
+                    // ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
+                    // if (ret < 0)
+                    //     fprintf(stderr, "Cannot write to file.\n");
+                }
+            }
 
 
             preview(frameBytes, videoFrame->GetRowBytes() * videoFrame->GetHeight());
@@ -444,6 +448,7 @@ int main(int argc, char *argv[])
                 uint8_t* buffer = nullptr;
                 frame->GetBytes((void**)&buffer);
 
+		// TODO(squeakymouse) this is where you should push the frame to the output side of the blackmagic card!
                 ssize_t ret = write(g_videoOutputFile, buffer, frame->GetRowBytes() * frame->GetHeight());
                 if (ret < 0)
                     fprintf(stderr, "Cannot write to file.\n");
