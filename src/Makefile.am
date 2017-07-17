@@ -1,1 +1,1 @@
-SUBDIRS = display util playback #capture
+SUBDIRS = display util playback capture

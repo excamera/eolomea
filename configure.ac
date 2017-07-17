@@ -32,6 +32,7 @@ AC_CONFIG_FILES([Makefile
          third_party/decklink/Makefile
          src/Makefile
          src/playback/Makefile
+         src/capture/Makefile
          src/display/Makefile
          src/util/Makefile
 	 ])
