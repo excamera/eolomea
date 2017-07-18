@@ -29,7 +29,7 @@
 #define __PLAYBACK_HH__
 
 #include "DeckLinkAPI.h"
-#include "Config.h"
+//#include "Config.h"
 #include "file.hh"
 #include <fstream>
 #include <list>
@@ -43,7 +43,7 @@ using std::chrono::microseconds;
 class Playback : public IDeckLinkVideoOutputCallback {
 private:
     int32_t                 m_refCount;
-    BMDConfig*              m_config;
+    //BMDConfig*              m_config;
     bool                    m_running;
     IDeckLink*              m_deckLink;
     IDeckLinkOutput*        m_deckLinkOutput;
@@ -58,6 +58,12 @@ private:
     unsigned long           m_totalFramesDropped;
     unsigned long           m_totalFramesCompleted;
 
+    int m_deckLinkIndex;
+    int m_displayModeIndex;
+    BMDVideoOutputFlags m_outputFlags;
+    BMDPixelFormat m_pixelFormat;
+    const char* m_videoInputFile;
+
     std::ofstream           m_logfile;
     File                    m_infile;
     
@@ -71,10 +77,16 @@ private:
     void            StopRunning();
     void            ScheduleNextFrame(bool prerolling);
 
+    const char*     GetPixelFormatName(BMDPixelFormat pixelFormat);
     void            PrintStatusLine(uint32_t queued);
 
 public:
-    Playback(BMDConfig *config);
+    Playback(int m_deckLinkIndex,
+	     int m_displayModeIndex,
+	     BMDVideoOutputFlags m_outputFlags,
+	     BMDPixelFormat m_pixelFormat,
+	     const char* m_videoInputFile);
+
     bool Run();
 
     // *** DeckLink API implementation of IDeckLinkVideoOutputCallback IDeckLinkAudioOutputCallback *** //

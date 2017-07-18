@@ -85,7 +85,6 @@ void sigfunc(int signum)
 int main(int argc, char *argv[])
 {
     int             exitStatus = 1;
-    Playback*    generator = NULL;
     std::unique_ptr<ChildProcess> command_process;
 
     pthread_mutex_init(&sleepMutex, NULL);
@@ -95,25 +94,29 @@ int main(int argc, char *argv[])
     signal(SIGTERM, sigfunc);
     signal(SIGHUP, sigfunc);
 
-    BMDConfig config;
-    if (!config.ParseArguments(argc, argv))
-    {
-        config.DisplayUsage(exitStatus);
-        return EXIT_FAILURE;
+    Playback* generator = nullptr;
+    std::cerr << "Loading file...";
+
+    // TODO(squeakmouse) everything is hard coded right now...
+    // make it not hard coded...
+    // getopt (if you are interested)
+    if(argc != 4){
+      char* str = argv[0];
+      std::cout << "not enough args\n" << str;
+      return -1;
     }
 
-    std::cerr << "Loading file...";
-    generator = new Playback(&config);
+    BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
+    BMDPixelFormat m_pixelFormat(bmdFormat8BitBGRA);
+    
+    generator = new Playback(0, 14, m_outputFlags, m_pixelFormat, "/drive-nvme/video3_720p60.playback.raw");
+
     std::cerr << "done!";
 
     generator->Run();
     exitStatus = 0;
+    generator->Release();
 
-    if (generator)
-    {
-        generator->Release();
-        generator = NULL;
-    }
     return exitStatus;
 }
 
@@ -121,9 +124,13 @@ Playback::~Playback()
 {
 }
 
-Playback::Playback(BMDConfig *config) :
+Playback::Playback(int m_deckLinkIndex,
+		   int m_displayModeIndex,
+		   BMDVideoOutputFlags m_outputFlags,
+		   BMDPixelFormat m_pixelFormat,
+		   const char* m_videoInputFile) :
+  
     m_refCount(1),
-    m_config(config),
     m_running(false),
     m_deckLink(),
     m_deckLinkOutput(),
@@ -136,8 +143,13 @@ Playback::Playback(BMDConfig *config) :
     m_totalFramesScheduled(0),
     m_totalFramesDropped(0),
     m_totalFramesCompleted(0),
+    m_deckLinkIndex(m_deckLinkIndex),
+    m_displayModeIndex(m_displayModeIndex),
+    m_outputFlags(m_outputFlags),
+    m_pixelFormat(m_pixelFormat),
+    m_videoInputFile(m_videoInputFile),
     m_logfile(),
-    m_infile(m_config->m_videoInputFile),
+    m_infile(m_videoInputFile),
     scheduled_timestamp_cpu(),
     scheduled_timestamp_decklink()
 {
@@ -169,7 +181,7 @@ bool Playback::Run()
         goto bail;
     }
 
-    idx = m_config->m_deckLinkIndex;
+    idx = m_deckLinkIndex;
 
     while ((result = deckLinkIterator->Next(&m_deckLink)) == S_OK)
     {
@@ -182,7 +194,7 @@ bool Playback::Run()
 
     if (result != S_OK || m_deckLink == NULL)
     {
-        fprintf(stderr, "Unable to get DeckLink device %u\n", m_config->m_deckLinkIndex);
+        fprintf(stderr, "Unable to get DeckLink device %u\n", m_deckLinkIndex);
         goto bail;
     }
 
@@ -200,7 +212,7 @@ bool Playback::Run()
         goto bail;
 
     // Get the display mode
-    idx = m_config->m_displayModeIndex;
+    idx = m_displayModeIndex;
 
     result = m_deckLinkOutput->GetDisplayModeIterator(&displayModeIterator);
     if (result != S_OK)
@@ -217,7 +229,7 @@ bool Playback::Run()
 
     if (result != S_OK || m_displayMode == NULL)
     {
-        fprintf(stderr, "Unable to get display mode %d\n", m_config->m_displayModeIndex);
+        fprintf(stderr, "Unable to get display mode %d\n", m_displayModeIndex);
         goto bail;
     }
 
@@ -226,41 +238,50 @@ bool Playback::Run()
     if (result != S_OK)
     {
         displayModeName = (char *)malloc(32);
-        snprintf(displayModeName, 32, "[index %d]", m_config->m_displayModeIndex);
+        snprintf(displayModeName, 32, "[index %d]", m_displayModeIndex);
     }
 
-    if (m_config->m_videoInputFile == NULL) {
+    if (m_videoInputFile == NULL) {
         fprintf(stderr, "-v <video filename> flag required\n");
         exit(1);
     }
 
-    if (m_config->m_logFilename != NULL) {
-        m_logfile.open(m_config->m_logFilename, std::ios::out);
-        if (!m_logfile.is_open()) {
-            fprintf(stderr, "Could not open logfile.\n");
-            goto bail;
-        }
-    }
+    // if (m_logFilename != NULL) {
+    //     m_logfile.open(m_logFilename, std::ios::out);
+    //     if (!m_logfile.is_open()) {
+    //         fprintf(stderr, "Could not open logfile.\n");
+    //         goto bail;
+    //     }
+    // }
+    
 
     /* IMPORTANT: print log file csv headers */
-    if (m_logfile.is_open()) {
-        std::time_t result = std::time(nullptr);
+    // if (m_logfile.is_open()) {
+    //     std::time_t result = std::time(nullptr);
 
-        m_logfile << "# Writing video to decklink interface: " << m_config->m_videoInputFile << std::endl
-                  << "# Time stamp: " << std::asctime(std::localtime(&result))
-                  << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_time_scheduled,cpu_time_completed,decklink_hardwaretime_scheduled,decklink_hardwaretime_completed_callback,decklink_frame_completed_reference_time"
-                  << "\n";
-    }
-    else {
-        std::time_t result = std::time(nullptr);
+    //     m_logfile << "# Writing video to decklink interface: " << m_videoInputFile << std::endl
+    //               << "# Time stamp: " << std::asctime(std::localtime(&result))
+    //               << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_time_scheduled,cpu_time_completed,decklink_hardwaretime_scheduled,decklink_hardwaretime_completed_callback,decklink_frame_completed_reference_time"
+    //               << "\n";
+    // }
+    // else {
+    //     std::time_t result = std::time(nullptr);
 
-        std::cout << "# Writing video to decklink interface: " << m_config->m_videoInputFile << std::endl
-                  << "# Time stamp: " << std::asctime(std::localtime(&result)) << std::endl
-                  << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_time_scheduled,cpu_time_completed,decklink_hardwaretime_scheduled,decklink_hardwaretime_completed_callback,decklink_frame_completed_reference_time"
-                  << "\n";
-    }
+    //     std::cout << "# Writing video to decklink interface: " << m_videoInputFile << std::endl
+    //               << "# Time stamp: " << std::asctime(std::localtime(&result)) << std::endl
+    //               << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_time_scheduled,cpu_time_completed,decklink_hardwaretime_scheduled,decklink_hardwaretime_completed_callback,decklink_frame_completed_reference_time"
+    //               << "\n";
+    // }
 
-    m_config->DisplayConfiguration();
+    // DISPLAY CONFIG
+    // fprintf(stderr, "Playing with the following configuration:\n"
+    //     " - Playback device: %s\n"
+    //     " - Video mode: %s\n"
+    //     " - Pixel format: %s\n",
+    //     m_deckLinkName,
+    //     m_displayModeName,
+    //     GetPixelFormatName(m_pixelFormat)
+    // );
 
     // Provide this class as a delegate to the audio and video output interfaces
     m_deckLinkOutput->SetScheduledFrameCompletionCallback(this);
@@ -346,6 +367,20 @@ bail:
     return success;
 }
 
+const char* Playback::GetPixelFormatName(BMDPixelFormat pixelFormat)
+{
+    switch (pixelFormat)
+    {
+        case bmdFormat8BitYUV:
+            return "8 bit YUV (4:2:2)";
+        case bmdFormat10BitYUV:
+            return "10 bit YUV (4:2:2)";
+        case bmdFormat10BitRGB:
+            return "10 bit RGB (4:4:4)";
+    }
+    return "unknown";
+}
+
 void Playback::StartRunning()
 {
     HRESULT                 result;
@@ -361,7 +396,7 @@ void Playback::StartRunning()
     std::cout << "m_framesPerSecond: "  << m_framesPerSecond << std::endl;
 
     // Set the video output mode
-    result = m_deckLinkOutput->EnableVideoOutput(m_displayMode->GetDisplayMode(), m_config->m_outputFlags);
+    result = m_deckLinkOutput->EnableVideoOutput(m_displayMode->GetDisplayMode(), m_outputFlags);
     if (result != S_OK)
     {
         fprintf(stderr, "Failed to enable video output. Is another application using the card?\n");
@@ -408,10 +443,10 @@ void Playback::ScheduleNextFrame(bool prerolling)
 
     void* frameBytes = NULL;
     IDeckLinkMutableVideoFrame* newFrame;
-    int bytesPerPixel = GetBytesPerPixel(m_config->m_pixelFormat);
+    int bytesPerPixel = GetBytesPerPixel(m_pixelFormat);
     HRESULT result = m_deckLinkOutput->CreateVideoFrame(m_frameWidth, m_frameHeight,
                                                                               m_frameWidth * bytesPerPixel,
-                                                                              m_config->m_pixelFormat, bmdFrameFlagDefault, &newFrame);
+                                                                              m_pixelFormat, bmdFrameFlagDefault, &newFrame);
     if (result != S_OK) {
         fprintf(stderr, "Failed to create video frame\n");
         return;
@@ -427,12 +462,12 @@ void Playback::ScheduleNextFrame(bool prerolling)
         memory_frontier += frame_size;
 
         std::memcpy(frameBytes, c.buffer(), c.size());
-        const unsigned int frame_time = (m_config->m_numBlackFrames + m_totalFramesScheduled) * m_frameDuration;
+        const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
         if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK)
             return;
 
         /* IMPORTANT: get the scheduled frame timestamps */
-        time_point<high_resolution_clock> tp = high_resolution_clock::now();
+        //time_point<high_resolution_clock> tp = high_resolution_clock::now();
 
         BMDTimeValue decklink_hardware_timestamp;
         BMDTimeValue decklink_time_in_frame;
@@ -448,7 +483,7 @@ void Playback::ScheduleNextFrame(bool prerolling)
         }
 
         /* IMPORTANT: store the scheduled fram timestamps */
-        scheduled_timestamp_cpu.push_back(tp);
+        //scheduled_timestamp_cpu.push_back(tp);
         scheduled_timestamp_decklink.push_back(decklink_hardware_timestamp);
 
 
@@ -463,21 +498,21 @@ void Playback::ScheduleNextFrame(bool prerolling)
 HRESULT Playback::CreateFrame(IDeckLinkVideoFrame** frame, void (*fillFunc)(IDeckLinkVideoFrame*))
 {
     HRESULT                     result;
-    int                         bytesPerPixel = GetBytesPerPixel(m_config->m_pixelFormat);
+    int                         bytesPerPixel = GetBytesPerPixel(m_pixelFormat);
     IDeckLinkMutableVideoFrame* newFrame = NULL;
     IDeckLinkMutableVideoFrame* referenceFrame = NULL;
     IDeckLinkVideoConversion*   frameConverter = NULL;
 
     *frame = NULL;
 
-    result = m_deckLinkOutput->CreateVideoFrame(m_frameWidth, m_frameHeight, m_frameWidth * bytesPerPixel, m_config->m_pixelFormat, bmdFrameFlagDefault, &newFrame);
+    result = m_deckLinkOutput->CreateVideoFrame(m_frameWidth, m_frameHeight, m_frameWidth * bytesPerPixel, m_pixelFormat, bmdFrameFlagDefault, &newFrame);
     if (result != S_OK)
     {
         fprintf(stderr, "Failed to create video frame\n");
         goto bail;
     }
 
-    if (m_config->m_pixelFormat == bmdFormat8BitBGRA)
+    if (m_pixelFormat == bmdFormat8BitBGRA)
     {
         fillFunc(newFrame);
     }
@@ -552,7 +587,7 @@ ULONG Playback::Release()
 HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, BMDOutputFrameCompletionResult result)
 {
     /* IMPORTANT: get the time stamps for when a frame is completed */
-    time_point<high_resolution_clock> tp = high_resolution_clock::now();
+    //time_point<high_resolution_clock> tp = high_resolution_clock::now();
 
     BMDTimeValue decklink_hardware_timestamp;
     BMDTimeValue decklink_time_in_frame;
@@ -593,32 +628,32 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
             //auto barcodes = Barcode::readBarcodes(img);
 
             /* IMPORTANT: print timestamps for fram was completed */
-            if (m_logfile.is_open()) {
-                m_logfile   << m_totalFramesCompleted << ","
-		  //<< barcodes.first << "," << barcodes.second << ","
-                            << time_point_cast<microseconds>(scheduled_timestamp_cpu.front()).time_since_epoch().count() << ","
-                            << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-                            << scheduled_timestamp_decklink.front()  << ","
-                            << decklink_hardware_timestamp << ","
-                            << decklink_frame_completed_timestamp
-                            << std::endl;
+            // if (m_logfile.is_open()) {
+            //     m_logfile   << m_totalFramesCompleted << ","
+	    // 	  //<< barcodes.first << "," << barcodes.second << ","
+            //                 << time_point_cast<microseconds>(scheduled_timestamp_cpu.front()).time_since_epoch().count() << ","
+            //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+            //                 << scheduled_timestamp_decklink.front()  << ","
+            //                 << decklink_hardware_timestamp << ","
+            //                 << decklink_frame_completed_timestamp
+            //                 << std::endl;
 
-                scheduled_timestamp_cpu.pop_front();
-                scheduled_timestamp_decklink.pop_front();
-            }
-            else {
-                std::cout   << m_totalFramesCompleted << ","
-		  //<< barcodes.first << "," << barcodes.second << ","
-                            << time_point_cast<microseconds>(scheduled_timestamp_cpu.front()).time_since_epoch().count() << ","
-                            << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-                            << scheduled_timestamp_decklink.front()  << ","
-                            << decklink_hardware_timestamp << ","
-                            << decklink_frame_completed_timestamp
-                            << std::endl;
+            //     scheduled_timestamp_cpu.pop_front();
+            //     scheduled_timestamp_decklink.pop_front();
+            // }
+            // else {
+            //     std::cout   << m_totalFramesCompleted << ","
+	    // 	  //<< barcodes.first << "," << barcodes.second << ","
+            //                 << time_point_cast<microseconds>(scheduled_timestamp_cpu.front()).time_since_epoch().count() << ","
+            //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+            //                 << scheduled_timestamp_decklink.front()  << ","
+            //                 << decklink_hardware_timestamp << ","
+            //                 << decklink_frame_completed_timestamp
+            //                 << std::endl;
 
-                scheduled_timestamp_cpu.pop_front();
-                scheduled_timestamp_decklink.pop_front();
-            }
+            //     scheduled_timestamp_cpu.pop_front();
+            //     scheduled_timestamp_decklink.pop_front();
+            // }
 
             //std::cout << "Frame #" << m_totalFramesCompleted << " on time." << std::endl;
             break;
