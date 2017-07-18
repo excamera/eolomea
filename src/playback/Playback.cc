@@ -100,16 +100,26 @@ int main(int argc, char *argv[])
     // TODO(squeakmouse) everything is hard coded right now...
     // make it not hard coded...
     // getopt (if you are interested)
-    if(argc != 4){
-      char* str = argv[0];
-      std::cout << "not enough args\n" << str;
+    if(argc != 5){
+      std::cout << "wrong number of args\n";
       return -1;
     }
 
     BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
-    BMDPixelFormat m_pixelFormat(bmdFormat8BitBGRA);
+    BMDPixelFormat m_pixelFormat;
+    switch(atoi(argv[3]))
+    {
+      case 0: m_pixelFormat = bmdFormat8BitYUV; break;
+      case 1: m_pixelFormat = bmdFormat10BitYUV; break;
+      case 2: m_pixelFormat = bmdFormat10BitRGB; break;
+      case 3: m_pixelFormat = bmdFormat8BitBGRA; break;
+
+      default:
+	fprintf(stderr, "Invalid argument: Pixel format %d is not valid", atoi(argv[3]));
+	return -1;
+    }
     
-    generator = new Playback(0, 14, m_outputFlags, m_pixelFormat, "/drive-nvme/video3_720p60.playback.raw");
+    generator = new Playback(atoi(argv[1]), atoi(argv[2]), m_outputFlags, m_pixelFormat, argv[4]);
 
     std::cerr << "done!";
 
