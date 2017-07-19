@@ -2,6 +2,6 @@ AM_CPPFLAGS = -I$(srcdir)/../../third_party/decklink -I$(srcdir)/../util -I$(src
 AM_CXXFLAGS = $(PICKY_CXXFLAGS)
 
 bin_PROGRAMS = capture
-capture_SOURCES = Capture.cc Capture.hh Config.hh Config.cc
+capture_SOURCES = Capture.cc Capture.hh Config.hh Config.cc Playback.cc Playback.hh
 capture_LDADD = ../../third_party/decklink/libdecklink.a -ldl -lm ../display/libdisplay.a ../util/libutil.a $(XCBPRESENT_LIBS) $(XCB_LIBS) $(PANGOCAIRO_LIBS)
 capture_LDFLAGS = -pthread

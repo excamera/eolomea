@@ -27,6 +27,7 @@
 
 #include <mutex>
 #include <queue>
+#include <thread>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +46,8 @@
 #include "Config.hh"
 #include "display.hh"
 #include "chunk.hh"
-//#include "barcode.hh"
+
+#include "Playback.hh"
 
 using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
@@ -54,6 +56,8 @@ using std::chrono::microseconds;
 
 std::queue<IDeckLinkVideoInputFrame*> frame_queue;
 std::mutex frame_queue_lock;
+
+std::queue<IDeckLinkVideoInputFrame*> output_queue;
 
  const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
 static BMDTimeScale prev_frame_recieved_time = (BMDTimeScale)0;
@@ -128,7 +132,7 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
     }
     else if( decklink_frame_reference_timestamp - prev_frame_recieved_time > 20000 ){
         std::cerr << "Frame was late! Delay was: " << decklink_frame_reference_timestamp - prev_frame_recieved_time << std::endl;
-        throw std::runtime_error("Capture was LATE when capturing a frame.\n");
+        //throw std::runtime_error("Capture was LATE when capturing a frame.\n");
     }
     else{
         prev_frame_recieved_time = decklink_frame_reference_timestamp;
@@ -191,12 +195,12 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
 
                 if (g_videoOutputFile != -1)
                 {
-                    std::lock_guard<std::mutex> lg(frame_queue_lock);
-                    videoFrame->AddRef();
-                    frame_queue.push(videoFrame);
-                    // ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
-                    // if (ret < 0)
-                    //     fprintf(stderr, "Cannot write to file.\n");
+		  std::lock_guard<std::mutex> lg(frame_queue_lock);
+		  videoFrame->AddRef();
+		  frame_queue.push(videoFrame);
+		  //ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
+		  //if (ret < 0)
+		  //fprintf(stderr, "Cannot write to file.\n");
                 }
             }
 
@@ -279,6 +283,12 @@ int main(int argc, char *argv[])
 
     DeckLinkCaptureDelegate*        delegate = NULL;
 
+    Playback *my_playback;
+    BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
+    std::list<uint8_t*>     output;
+    std::mutex              output_mutex;
+    std::thread t;
+    
     pthread_mutex_init(&g_sleepMutex, NULL);
     pthread_cond_init(&g_sleepCond, NULL);
 
@@ -420,6 +430,10 @@ int main(int argc, char *argv[])
         }
     }
 
+    // TODO(squeakymouse) make this work!
+    my_playback = new Playback(0, 11, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex);
+    t = std::move( std::thread([&](){my_playback->Run();}) );
+
     // Block main thread until signal occurs
     while (!g_do_exit)
     {
@@ -449,11 +463,18 @@ int main(int argc, char *argv[])
                 frame->GetBytes((void**)&buffer);
 
 		// TODO(squeakymouse) this is where you should push the frame to the output side of the blackmagic card!
-                ssize_t ret = write(g_videoOutputFile, buffer, frame->GetRowBytes() * frame->GetHeight());
-                if (ret < 0)
-                    fprintf(stderr, "Cannot write to file.\n");
+		//output_queue.push(frame);
+		{
+		  std::lock_guard<std::mutex> lg(output_mutex);		  
+		  if(output.size() < 5){
+		    output.push_back(buffer);
+		  }
+		}
+                //ssize_t ret = write(g_videoOutputFile, buffer, frame->GetRowBytes() * frame->GetHeight());
+                //if (ret < 0)
+                //    fprintf(stderr, "Cannot write to file.\n");
 
-                frame->Release();
+		frame->Release();
             }
             else{
                 usleep(100);
