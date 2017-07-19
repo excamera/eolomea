@@ -53,7 +53,6 @@
 #include "exception.hh"
 #include "display.hh"
 #include "chunk.hh"
-//#include "barcode.hh"
 #include "child_process.hh"
 #include "system_runner.hh"
 
@@ -100,11 +99,8 @@ int main(int argc, char *argv[])
     Playback* generator = nullptr;
     std::cerr << "Loading file...";
 
-    // TODO(squeakmouse) everything is hard coded right now...
-    // make it not hard coded...
-    // getopt (if you are interested)
     if(argc != 5){
-      std::cout << "wrong number of args\n";
+      std::cout << "Wrong number of args\n";
       return -1;
     }
 
@@ -171,9 +167,7 @@ Playback::Playback(int m_deckLinkIndex,
     m_logfile(),
     scheduled_timestamp_cpu(),
     scheduled_timestamp_decklink()
-{
-  //memory_frontier = (uint64_t)m_infile(0,1).buffer();
-}
+{}
 
 bool Playback::Run()
 {
@@ -185,15 +179,7 @@ bool Playback::Run()
     IDeckLinkConfiguration*         deckLinkConfiguration = NULL;
     IDeckLinkDisplayModeIterator*   displayModeIterator = NULL;
     char*                           displayModeName = NULL;
-
-    //Chunk c = m_infile(0, 1);
-    //const uint64_t m_infile_start = (uint64_t) c.buffer();
     uint8_t* frame = nullptr; 
-
-
-    //const uint64_t file_size = m_infile.size();
-    //uint64_t prefetch_high_water_mark = m_infile_start + prefetch_block_size;
-    //bool quit = false;
 
     // Get the DeckLink device
     deckLinkIterator = CreateDeckLinkIteratorInstance();
@@ -268,52 +254,10 @@ bool Playback::Run()
         exit(1);
     }
 
-    // if (m_logFilename != NULL) {
-    //     m_logfile.open(m_logFilename, std::ios::out);
-    //     if (!m_logfile.is_open()) {
-    //         fprintf(stderr, "Could not open logfile.\n");
-    //         goto bail;
-    //     }
-    // }
-    
-
-    /* IMPORTANT: print log file csv headers */
-    // if (m_logfile.is_open()) {
-    //     std::time_t result = std::time(nullptr);
-
-    //     m_logfile << "# Writing video to decklink interface: " << m_videoInputFile << std::endl
-    //               << "# Time stamp: " << std::asctime(std::localtime(&result))
-    //               << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_time_scheduled,cpu_time_completed,decklink_hardwaretime_scheduled,decklink_hardwaretime_completed_callback,decklink_frame_completed_reference_time"
-    //               << "\n";
-    // }
-    // else {
-    //     std::time_t result = std::time(nullptr);
-
-    //     std::cout << "# Writing video to decklink interface: " << m_videoInputFile << std::endl
-    //               << "# Time stamp: " << std::asctime(std::localtime(&result)) << std::endl
-    //               << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_time_scheduled,cpu_time_completed,decklink_hardwaretime_scheduled,decklink_hardwaretime_completed_callback,decklink_frame_completed_reference_time"
-    //               << "\n";
-    // }
-
-    // DISPLAY CONFIG
-    // fprintf(stderr, "Playing with the following configuration:\n"
-    //     " - Playback device: %s\n"
-    //     " - Video mode: %s\n"
-    //     " - Pixel format: %s\n",
-    //     m_deckLinkName,
-    //     m_displayModeName,
-    //     GetPixelFormatName(m_pixelFormat)
-    // );
-
     // Provide this class as a delegate to the audio and video output interfaces
     m_deckLinkOutput->SetScheduledFrameCompletionCallback(this);
 
     success = true;
-
-    // lock the initial buffer
-    for ( unsigned int i = 0; i < prefetch_buffer_size / prefetch_block_size; i++ ) {
-      //SystemCall( "mlock", mlock((uint8_t*) m_infile_start + i * prefetch_block_size, prefetch_block_size) );
-    }
 
     // Start
     StartRunning();
@@ -337,45 +281,7 @@ bool Playback::Run()
 	}
       }
       
-      /*if ( !quit && memory_frontier > prefetch_high_water_mark ) {
-            std::cerr << "START paging in a new block" << std::endl;
-
-            // mlock the next block
-	    uint64_t new_block_starting_location = prefetch_high_water_mark + (prefetch_buffer_size - prefetch_block_size);
-	    uint64_t block_size;
-	    if( new_block_starting_location+prefetch_block_size > m_infile_start+file_size ) {
-	      block_size = (m_infile_start + file_size) - new_block_starting_location;
-	      quit = true;
-	    }
-	    else {
-	      block_size = prefetch_block_size;
-	    }
-
-	    std::cerr << block_size << " " << prefetch_block_size << std::endl;
-	    assert(block_size <= prefetch_block_size);
-            SystemCall( "mlock", mlock((uint8_t*) new_block_starting_location, block_size) );
-
-            // unlock the last block
-            SystemCall( "munlock", munlock((uint8_t*) prefetch_high_water_mark - 2*prefetch_block_size, prefetch_block_size) );
-
-            prefetch_high_water_mark += prefetch_block_size;
-            std::cerr << "DONE paging new block" << std::endl;
-        }
-        usleep(100);
-        //std::cerr << "memory frontier: " << memory_frontier << std::endl;*/
     }
-
-    // while (!do_exit)
-    // {
-    //     fprintf(stderr, "Starting playback\n");
-
-    //     pthread_mutex_lock(&sleepMutex);
-    //     pthread_cond_wait(&sleepCond, &sleepMutex);
-    //     pthread_mutex_unlock(&sleepMutex);
-
-    //     fprintf(stderr, "Stopping playback\n");
-    //     StopRunning();
-    // }
 
     printf("\n");
     m_running = false;
@@ -495,49 +401,19 @@ void Playback::ScheduleNextFrame(bool prerolling)
     newFrame->GetBytes(&frameBytes);
 
     const unsigned int frame_size = 4 * m_frameWidth * m_frameHeight;
-    //const unsigned int frame_count = m_infile.size() / (uint64_t)frame_size;
 
-    //if ( m_totalFramesScheduled < frame_count ) {
     if (true) {
-        //Chunk c = m_infile(m_totalFramesScheduled * frame_size, frame_size);
-      
       {
 	std::lock_guard<std::mutex> guard(output_mutex);	
 	if (!output.empty()) {
 	  std::memcpy(frameBytes, output.front(), 1280*720*4);
 	  output.pop_front();
 	}
-	/*else {
-	  for (size_t i = 0; i < 1280*720*4; ++i)
-	    ((uint8_t*)frameBytes)[i] = 255;
-	}*/
       }
 
 
     memory_frontier += frame_size;
 
-    //std::memcpy(frameBytes, c.buffer(), c.size()); // where we copy the video from the input file to the buffer that is played on the BM card
-    /*for(size_t i = 0; i < 9; i++) {
-      for (size_t j = 0; j < 80; ++j) {
-      for (size_t k = 0; k < 16; ++k) {
-	      for (size_t l = 0; l < 80; ++l) {
-	      size_t pix = 102400*i + 1280*j + 80*k + l;
-	      if ((i + k) % 2 == 0) {
-	      ((uint8_t*)frameBytes)[4*pix] = 0;
-	      ((uint8_t*)frameBytes)[4*pix+1] = 0;
-	      ((uint8_t*)frameBytes)[4*pix+2] = 255;
-	      ((uint8_t*)frameBytes)[4*pix+3] = 255;
-	      }
-	      else {
-	      ((uint8_t*)frameBytes)[4*pix] = 0;
-	      ((uint8_t*)frameBytes)[4*pix+1] = 0;
-	      ((uint8_t*)frameBytes)[4*pix+2] = 0;
-	      ((uint8_t*)frameBytes)[4*pix+3] = 255;
-	      }
-	      }
-	      }
-	      }
-	      }*/
     const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
     if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK){
       return;
@@ -702,7 +578,6 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
         {
             Chunk chunk((uint8_t*)frameBytes, completedFrame->GetRowBytes() * completedFrame->GetHeight());
             RGBImage img(chunk, completedFrame->GetWidth(), completedFrame->GetHeight());
-            //auto barcodes = Barcode::readBarcodes(img);
 
             /* IMPORTANT: print timestamps for fram was completed */
             // if (m_logfile.is_open()) {
@@ -756,16 +631,6 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
     completedFrame->Release();
     ++m_totalFramesCompleted;
 
-    //const unsigned int frame_size = 4 * m_frameWidth * m_frameHeight;
-    //const unsigned int frame_count = m_infile.size() / (uint64_t)frame_size;
-
-    /*if ( m_totalFramesCompleted >= frame_count ) {
-        //m_deckLinkOutput->StopScheduledPlayback(0, NULL, 0);
-        std::cout << "All frames completed: " << frame_count << std::endl;
-        do_exit = true;
-
-        pthread_cond_signal(&sleepCond);
-	} else*/
     ScheduleNextFrame(false);
 
     return S_OK;
