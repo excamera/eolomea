@@ -261,22 +261,29 @@ bool Playback::Run()
 
     // Start
     StartRunning();
-    
+
+    size_t size;
     while ( !do_exit ) {
       
       {
 	std::lock_guard<std::mutex> guard(output_mutex);
-	if (output.size() < 120) {
-	  uint8_t i1 = (uint8_t) rand() % 256;
-	  uint8_t i2 = (uint8_t) rand() % 256;
-	  uint8_t i3 = (uint8_t) rand() % 256;	
-	  frame = new uint8_t[1280*720*4];
-	  for (int i = 0; i < 1280*720; ++i) {
-	    frame[4*i] = i1;
-	    frame[4*i+1] = i2;
-	    frame[4*i+2] = i3;
-	    frame[4*i+3] = (uint8_t) 255;
-	  }
+	size = output.size();
+      }
+      
+      if (size < 120) {
+	uint8_t i1 = (uint8_t) rand() % 256;
+	uint8_t i2 = (uint8_t) rand() % 256;
+	uint8_t i3 = (uint8_t) rand() % 256;	
+	frame = new uint8_t[1280*720*4];
+	for (int i = 0; i < 1280*720; ++i) {
+	  frame[4*i] = i1;
+	  frame[4*i+1] = i2;
+	  frame[4*i+2] = i3;
+	  frame[4*i+3] = (uint8_t) 255;
+	}
+	
+	{
+	  std::lock_guard<std::mutex> guard(output_mutex);
 	  output.push_back(frame);
 	}
       }
@@ -354,7 +361,8 @@ void Playback::StartRunning()
     m_totalFramesDropped = 0;
     m_totalFramesCompleted = 0;
     for (unsigned i = 0; i < m_framesPerSecond; i++)
-        ScheduleNextFrame(true);
+    //for (unsigned i = 0; i < 9; i++)
+    ScheduleNextFrame(true);
 
     m_deckLinkOutput->StartScheduledPlayback(0, m_frameTimescale, 1.0);
 
@@ -408,6 +416,7 @@ void Playback::ScheduleNextFrame(bool prerolling)
 	if (!output.empty()) {
 	  std::memcpy(frameBytes, output.front(), 1280*720*4);
 	  output.pop_front();
+	  std::cout << output.size() << '\n';
 	}
       }
 
@@ -438,8 +447,6 @@ void Playback::ScheduleNextFrame(bool prerolling)
         /* IMPORTANT: store the scheduled fram timestamps */
         //scheduled_timestamp_cpu.push_back(tp);
         scheduled_timestamp_decklink.push_back(decklink_hardware_timestamp);
-
-
 
         m_totalFramesScheduled += 1;
     }
@@ -608,11 +615,14 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
             // }
 
             //std::cout << "Frame #" << m_totalFramesCompleted << " on time." << std::endl;
+	    std::cout << decklink_frame_completed_timestamp << '\n';	    
             break;
         }
         case bmdOutputFrameDisplayedLate:
             std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
-            throw std::runtime_error("Frame Displayed Late.");
+	    std::cout << decklink_frame_completed_timestamp << '\n';	    
+
+            //throw std::runtime_error("Frame Displayed Late.");
             break;
         case bmdOutputFrameDropped:
             std::cout  << "Warning: Frame " << m_totalFramesCompleted << " Dropped. " << std::endl;
