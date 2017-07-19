@@ -64,8 +64,6 @@ using std::chrono::microseconds;
 
 const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
 
-std::list<uint8_t*> output;
-std::mutex output_mutex;
 void* frameBytes = NULL;
 
 pthread_mutex_t         sleepMutex;
@@ -123,8 +121,11 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "Invalid argument: Pixel format %d is not valid", atoi(argv[3]));
 	return -1;
     }
+
+    std::list<uint8_t*>     output;
+    std::mutex              output_mutex;
     
-    generator = new Playback(atoi(argv[1]), atoi(argv[2]), m_outputFlags, m_pixelFormat, argv[4]);
+    generator = new Playback(atoi(argv[1]), atoi(argv[2]), m_outputFlags, m_pixelFormat, argv[4], output, output_mutex);
 
     std::cerr << "done!";
 
@@ -143,7 +144,9 @@ Playback::Playback(int m_deckLinkIndex,
 		   int m_displayModeIndex,
 		   BMDVideoOutputFlags m_outputFlags,
 		   BMDPixelFormat m_pixelFormat,
-		   const char* m_videoInputFile) :
+		   const char* m_videoInputFile,
+		   std::list<uint8_t*> &output,
+		   std::mutex &output_mutex) :
   
     m_refCount(1),
     m_running(false),
@@ -163,12 +166,13 @@ Playback::Playback(int m_deckLinkIndex,
     m_outputFlags(m_outputFlags),
     m_pixelFormat(m_pixelFormat),
     m_videoInputFile(m_videoInputFile),
+    output(output),
+    output_mutex(output_mutex),
     m_logfile(),
-    m_infile(m_videoInputFile),
     scheduled_timestamp_cpu(),
     scheduled_timestamp_decklink()
 {
-    memory_frontier = (uint64_t)m_infile(0,1).buffer();
+  //memory_frontier = (uint64_t)m_infile(0,1).buffer();
 }
 
 bool Playback::Run()
@@ -182,8 +186,8 @@ bool Playback::Run()
     IDeckLinkDisplayModeIterator*   displayModeIterator = NULL;
     char*                           displayModeName = NULL;
 
-    Chunk c = m_infile(0, 1);
-    const uint64_t m_infile_start = (uint64_t) c.buffer();
+    //Chunk c = m_infile(0, 1);
+    //const uint64_t m_infile_start = (uint64_t) c.buffer();
     uint8_t* frame = nullptr; 
 
 
@@ -308,7 +312,7 @@ bool Playback::Run()
 
     // lock the initial buffer
     for ( unsigned int i = 0; i < prefetch_buffer_size / prefetch_block_size; i++ ) {
-        SystemCall( "mlock", mlock((uint8_t*) m_infile_start + i * prefetch_block_size, prefetch_block_size) );
+      //SystemCall( "mlock", mlock((uint8_t*) m_infile_start + i * prefetch_block_size, prefetch_block_size) );
     }
 
     // Start
@@ -316,12 +320,12 @@ bool Playback::Run()
     
     while ( !do_exit ) {
       
-      output_mutex.lock();
-      if (output.size() < 120) {
-	std::cout << "HELLO " << output.size() << '\n';
-	uint8_t i1 = (uint8_t) rand() % 256;
-	uint8_t i2 = (uint8_t) rand() % 256;
-	uint8_t i3 = (uint8_t) rand() % 256;	
+      {
+	std::lock_guard<std::mutex> guard(output_mutex);
+	if (output.size() < 120) {
+	  uint8_t i1 = (uint8_t) rand() % 256;
+	  uint8_t i2 = (uint8_t) rand() % 256;
+	  uint8_t i3 = (uint8_t) rand() % 256;	
 	  frame = new uint8_t[1280*720*4];
 	  for (int i = 0; i < 1280*720; ++i) {
 	    frame[4*i] = i1;
@@ -329,10 +333,9 @@ bool Playback::Run()
 	    frame[4*i+2] = i3;
 	    frame[4*i+3] = (uint8_t) 255;
 	  }
-	  //	  std::lock_guard<std::mutex> guard(output_mutex);
 	  output.push_back(frame);
+	}
       }
-      output_mutex.unlock();
       
       /*if ( !quit && memory_frontier > prefetch_high_water_mark ) {
             std::cerr << "START paging in a new block" << std::endl;
@@ -492,9 +495,10 @@ void Playback::ScheduleNextFrame(bool prerolling)
     newFrame->GetBytes(&frameBytes);
 
     const unsigned int frame_size = 4 * m_frameWidth * m_frameHeight;
-    const unsigned int frame_count = m_infile.size() / (uint64_t)frame_size;
+    //const unsigned int frame_count = m_infile.size() / (uint64_t)frame_size;
 
-    if ( m_totalFramesScheduled < frame_count ) {
+    //if ( m_totalFramesScheduled < frame_count ) {
+    if (true) {
         //Chunk c = m_infile(m_totalFramesScheduled * frame_size, frame_size);
       
       {
@@ -502,13 +506,11 @@ void Playback::ScheduleNextFrame(bool prerolling)
 	if (!output.empty()) {
 	  std::memcpy(frameBytes, output.front(), 1280*720*4);
 	  output.pop_front();
-	  std::cout << ((((int*)frameBytes)[0] % 256) + 256) % 256  << " " << output.size() << "\n";
 	}
-	else {
+	/*else {
 	  for (size_t i = 0; i < 1280*720*4; ++i)
 	    ((uint8_t*)frameBytes)[i] = 255;
-	  std::cout << "empty\n";
-	}
+	}*/
       }
 
 
@@ -754,17 +756,17 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
     completedFrame->Release();
     ++m_totalFramesCompleted;
 
-    const unsigned int frame_size = 4 * m_frameWidth * m_frameHeight;
-    const unsigned int frame_count = m_infile.size() / (uint64_t)frame_size;
+    //const unsigned int frame_size = 4 * m_frameWidth * m_frameHeight;
+    //const unsigned int frame_count = m_infile.size() / (uint64_t)frame_size;
 
-    if ( m_totalFramesCompleted >= frame_count ) {
+    /*if ( m_totalFramesCompleted >= frame_count ) {
         //m_deckLinkOutput->StopScheduledPlayback(0, NULL, 0);
         std::cout << "All frames completed: " << frame_count << std::endl;
         do_exit = true;
 
         pthread_cond_signal(&sleepCond);
-    } else
-        ScheduleNextFrame(false);
+	} else*/
+    ScheduleNextFrame(false);
 
     return S_OK;
 }
