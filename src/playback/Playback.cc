@@ -47,6 +47,7 @@
 #include <ctime>
 #include <cassert>
 #include <list>
+#include <mutex>
 #include <memory>
 #include "Playback.hh"
 #include "exception.hh"
@@ -62,6 +63,10 @@ using std::chrono::time_point_cast;
 using std::chrono::microseconds;
 
 const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
+
+std::list<uint8_t*> output;
+std::mutex output_mutex;
+void* frameBytes = NULL;
 
 pthread_mutex_t         sleepMutex;
 pthread_cond_t          sleepCond;
@@ -179,9 +184,12 @@ bool Playback::Run()
 
     Chunk c = m_infile(0, 1);
     const uint64_t m_infile_start = (uint64_t) c.buffer();
-    const uint64_t file_size = m_infile.size();
-    uint64_t prefetch_high_water_mark = m_infile_start + prefetch_block_size;
-    bool quit = false;
+    uint8_t* frame = nullptr; 
+
+
+    //const uint64_t file_size = m_infile.size();
+    //uint64_t prefetch_high_water_mark = m_infile_start + prefetch_block_size;
+    //bool quit = false;
 
     // Get the DeckLink device
     deckLinkIterator = CreateDeckLinkIteratorInstance();
@@ -305,9 +313,28 @@ bool Playback::Run()
 
     // Start
     StartRunning();
-
+    
     while ( !do_exit ) {
-      if ( !quit && memory_frontier > prefetch_high_water_mark ) {
+      
+      output_mutex.lock();
+      if (output.size() < 120) {
+	std::cout << "HELLO " << output.size() << '\n';
+	uint8_t i1 = (uint8_t) rand() % 256;
+	uint8_t i2 = (uint8_t) rand() % 256;
+	uint8_t i3 = (uint8_t) rand() % 256;	
+	  frame = new uint8_t[1280*720*4];
+	  for (int i = 0; i < 1280*720; ++i) {
+	    frame[4*i] = i1;
+	    frame[4*i+1] = i2;
+	    frame[4*i+2] = i3;
+	    frame[4*i+3] = (uint8_t) 255;
+	  }
+	  //	  std::lock_guard<std::mutex> guard(output_mutex);
+	  output.push_back(frame);
+      }
+      output_mutex.unlock();
+      
+      /*if ( !quit && memory_frontier > prefetch_high_water_mark ) {
             std::cerr << "START paging in a new block" << std::endl;
 
             // mlock the next block
@@ -332,7 +359,7 @@ bool Playback::Run()
             std::cerr << "DONE paging new block" << std::endl;
         }
         usleep(100);
-        //std::cerr << "memory frontier: " << memory_frontier << std::endl;
+        //std::cerr << "memory frontier: " << memory_frontier << std::endl;*/
     }
 
     // while (!do_exit)
@@ -451,7 +478,7 @@ void Playback::ScheduleNextFrame(bool prerolling)
             return;
     }
 
-    void* frameBytes = NULL;
+    //void* frameBytes = NULL;
     IDeckLinkMutableVideoFrame* newFrame;
     int bytesPerPixel = GetBytesPerPixel(m_pixelFormat);
     HRESULT result = m_deckLinkOutput->CreateVideoFrame(m_frameWidth, m_frameHeight,
@@ -468,13 +495,51 @@ void Playback::ScheduleNextFrame(bool prerolling)
     const unsigned int frame_count = m_infile.size() / (uint64_t)frame_size;
 
     if ( m_totalFramesScheduled < frame_count ) {
-        Chunk c = m_infile(m_totalFramesScheduled * frame_size, frame_size);
-        memory_frontier += frame_size;
+        //Chunk c = m_infile(m_totalFramesScheduled * frame_size, frame_size);
+      
+      {
+	std::lock_guard<std::mutex> guard(output_mutex);	
+	if (!output.empty()) {
+	  std::memcpy(frameBytes, output.front(), 1280*720*4);
+	  output.pop_front();
+	  std::cout << ((((int*)frameBytes)[0] % 256) + 256) % 256  << " " << output.size() << "\n";
+	}
+	else {
+	  for (size_t i = 0; i < 1280*720*4; ++i)
+	    ((uint8_t*)frameBytes)[i] = 255;
+	  std::cout << "empty\n";
+	}
+      }
 
-        std::memcpy(frameBytes, c.buffer(), c.size());
-        const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
-        if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK)
-            return;
+
+    memory_frontier += frame_size;
+
+    //std::memcpy(frameBytes, c.buffer(), c.size()); // where we copy the video from the input file to the buffer that is played on the BM card
+    /*for(size_t i = 0; i < 9; i++) {
+      for (size_t j = 0; j < 80; ++j) {
+      for (size_t k = 0; k < 16; ++k) {
+	      for (size_t l = 0; l < 80; ++l) {
+	      size_t pix = 102400*i + 1280*j + 80*k + l;
+	      if ((i + k) % 2 == 0) {
+	      ((uint8_t*)frameBytes)[4*pix] = 0;
+	      ((uint8_t*)frameBytes)[4*pix+1] = 0;
+	      ((uint8_t*)frameBytes)[4*pix+2] = 255;
+	      ((uint8_t*)frameBytes)[4*pix+3] = 255;
+	      }
+	      else {
+	      ((uint8_t*)frameBytes)[4*pix] = 0;
+	      ((uint8_t*)frameBytes)[4*pix+1] = 0;
+	      ((uint8_t*)frameBytes)[4*pix+2] = 0;
+	      ((uint8_t*)frameBytes)[4*pix+3] = 255;
+	      }
+	      }
+	      }
+	      }
+	      }*/
+    const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
+    if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK){
+      return;
+    }
 
         /* IMPORTANT: get the scheduled frame timestamps */
         //time_point<high_resolution_clock> tp = high_resolution_clock::now();

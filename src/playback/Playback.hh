@@ -34,6 +34,7 @@
 #include <fstream>
 #include <list>
 #include <chrono>
+#include <mutex>
 
 using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
@@ -63,6 +64,9 @@ private:
     BMDVideoOutputFlags m_outputFlags;
     BMDPixelFormat m_pixelFormat;
     const char* m_videoInputFile;
+
+  //std::list<uint8_t*[]>   output = new std::list<uint8_t*[]>;
+  //std::mutex              output_mutex;
 
     std::ofstream           m_logfile;
     File                    m_infile;
