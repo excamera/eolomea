@@ -361,7 +361,7 @@ void Playback::StartRunning()
     m_totalFramesScheduled = 0;
     m_totalFramesDropped = 0;
     m_totalFramesCompleted = 0;
-    for (unsigned i = 0; i < m_framesPerSecond; i++)
+    //for (unsigned i = 0; i < m_framesPerSecond; i++)
     //for (unsigned i = 0; i < 9; i++)
     ScheduleNextFrame(true);
 

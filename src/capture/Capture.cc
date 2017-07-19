@@ -73,7 +73,9 @@ static IDeckLinkInput*  g_deckLinkInput = NULL;
 static std::ofstream    logfile;
 
 static int64_t  g_frameCount = 0;
-static uint64_t g_validFrameCount = 0;
+//static uint64_t g_validFrameCount = 0;
+std::list<uint8_t*>     output;
+std::mutex              output_mutex;
 
 DeckLinkCaptureDelegate::DeckLinkCaptureDelegate() :
     m_refCount(1)
@@ -150,62 +152,71 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
         }
         else
         {
-            uint64_t framesize = videoFrame->GetRowBytes() * videoFrame->GetHeight();
+	  //uint64_t framesize = videoFrame->GetRowBytes() * videoFrame->GetHeight();
 
             videoFrame->GetBytes(&frameBytes);
-            Chunk chunk((uint8_t*)frameBytes, framesize);
+	    {
+	      std::lock_guard<std::mutex> lg(output_mutex);		  
+	      if(output.size() < 1){
+		output.push_back((uint8_t*)frameBytes);
+	      }
+	      else{
+		std::cout << "full!\n"; 
+	      }
+	    }
+            // Chunk chunk((uint8_t*)frameBytes, framesize);
 
-            std::pair<uint64_t, uint64_t> barcodes { 0, 1 };
+            // std::pair<uint64_t, uint64_t> barcodes { 0, 1 };
 
-            if ( g_config.m_pixelFormat == bmdFormat8BitYUV ) {
-              UYVYImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
-              //barcodes = Barcode::readBarcodes(img);
-            }
-            else if ( g_config.m_pixelFormat == bmdFormat8BitBGRA ) {
-              RGBImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
-              //barcodes = Barcode::readBarcodes(img);
-            }
+            // if ( g_config.m_pixelFormat == bmdFormat8BitYUV ) {
+            //   UYVYImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
+            //   //barcodes = Barcode::readBarcodes(img);
+            // }
+            // else if ( g_config.m_pixelFormat == bmdFormat8BitBGRA ) {
+            //   RGBImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
+            //   //barcodes = Barcode::readBarcodes(img);
+            // }
 
-            printf("Frame received (#%lu) - %s - Size: %li bytes\n",
-                   g_frameCount,
-                   "Valid Frame",
-                   framesize);
+            // printf("Frame received (#%lu) - %s - Size: %li bytes\n",
+            //        g_frameCount,
+            //        "Valid Frame",
+            //        framesize);
 
-            /* IMPORTANT: log the timestamps  */
-            if (barcodes.first != 0xFFFFFFFFFFFFFFFF
-                || barcodes.second != 0xFFFFFFFFFFFFFFFF) {
+            // /* IMPORTANT: log the timestamps  */
+            // if (barcodes.first != 0xFFFFFFFFFFFFFFFF
+            //     || barcodes.second != 0xFFFFFFFFFFFFFFFF) {
 
-                // if (logfile.is_open())
-                //     logfile << g_validFrameCount << ","
-                //             << barcodes.first << "," << barcodes.second << ","
-                //             << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-                //             << decklink_hardware_timestamp << ","
-                //             << decklink_frame_reference_timestamp << ","
-                //             << decklink_frame_reference_duration
-                //             << std::endl;
-                // else
-                //     std::cout   << g_validFrameCount << ","
-                //                 << barcodes.first << "," << barcodes.second << ","
-                //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-                //                 << decklink_hardware_timestamp << ","
-                //                 << decklink_frame_reference_timestamp << ","
-                //                 << decklink_frame_reference_duration
-                //                 << std::endl;
-                g_validFrameCount++;
+            //     // if (logfile.is_open())
+            //     //     logfile << g_validFrameCount << ","
+            //     //             << barcodes.first << "," << barcodes.second << ","
+            //     //             << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+            //     //             << decklink_hardware_timestamp << ","
+            //     //             << decklink_frame_reference_timestamp << ","
+            //     //             << decklink_frame_reference_duration
+            //     //             << std::endl;
+            //     // else
+            //     //     std::cout   << g_validFrameCount << ","
+            //     //                 << barcodes.first << "," << barcodes.second << ","
+            //     //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+            //     //                 << decklink_hardware_timestamp << ","
+            //     //                 << decklink_frame_reference_timestamp << ","
+            //     //                 << decklink_frame_reference_duration
+            //     //                 << std::endl;
+            //     g_validFrameCount++;
 
-                if (g_videoOutputFile != -1)
-                {
-		  std::lock_guard<std::mutex> lg(frame_queue_lock);
-		  videoFrame->AddRef();
-		  frame_queue.push(videoFrame);
-		  //ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
-		  //if (ret < 0)
-		  //fprintf(stderr, "Cannot write to file.\n");
-                }
-            }
+            //     if (g_videoOutputFile != -1)
+            //     {
+	    // 	  std::lock_guard<std::mutex> lg(frame_queue_lock);
+	    // 	  videoFrame->AddRef();
+	    // 	  frame_queue.push(videoFrame);
+	    // 	  //ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
+	    // 	  //if (ret < 0)
+	    // 	  //fprintf(stderr, "Cannot write to file.\n");
+            //     }
+            // }
 
 
-            preview(frameBytes, videoFrame->GetRowBytes() * videoFrame->GetHeight());
+            // preview(frameBytes, videoFrame->GetRowBytes() * videoFrame->GetHeight());
         }
 
         g_frameCount++;
@@ -285,8 +296,6 @@ int main(int argc, char *argv[])
 
     Playback *my_playback;
     BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
-    std::list<uint8_t*>     output;
-    std::mutex              output_mutex;
     std::thread t;
     
     pthread_mutex_init(&g_sleepMutex, NULL);
@@ -430,7 +439,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    // TODO(squeakymouse) make this work!
     my_playback = new Playback(0, 11, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex);
     t = std::move( std::thread([&](){my_playback->Run();}) );
 
@@ -449,6 +457,8 @@ int main(int argc, char *argv[])
         if (result != S_OK)
             goto bail;
 
+	while(true){}
+
         while ( !g_do_exit || !frame_queue.empty()) {
             IDeckLinkVideoInputFrame* frame = nullptr;
             {
@@ -464,12 +474,12 @@ int main(int argc, char *argv[])
 
 		// TODO(squeakymouse) this is where you should push the frame to the output side of the blackmagic card!
 		//output_queue.push(frame);
-		{
-		  std::lock_guard<std::mutex> lg(output_mutex);		  
-		  if(output.size() < 5){
-		    output.push_back(buffer);
-		  }
-		}
+		// {
+		//   std::lock_guard<std::mutex> lg(output_mutex);		  
+		//   if(output.size() < 5){
+		//     output.push_back(buffer);
+		//   }
+		// }
                 //ssize_t ret = write(g_videoOutputFile, buffer, frame->GetRowBytes() * frame->GetHeight());
                 //if (ret < 0)
                 //    fprintf(stderr, "Cannot write to file.\n");
