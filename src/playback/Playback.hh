@@ -65,11 +65,11 @@ private:
     BMDPixelFormat m_pixelFormat;
     const char* m_videoInputFile;
 
-  //std::list<uint8_t*[]>   output = new std::list<uint8_t*[]>;
-  //std::mutex              output_mutex;
+    std::list<uint8_t*>     &output;
+    std::mutex              &output_mutex;
 
     std::ofstream           m_logfile;
-    File                    m_infile;
+  //File                    m_infile;
     
     std::list<time_point<high_resolution_clock>> scheduled_timestamp_cpu;
     std::list<BMDTimeValue> scheduled_timestamp_decklink;
@@ -89,7 +89,9 @@ public:
 	     int m_displayModeIndex,
 	     BMDVideoOutputFlags m_outputFlags,
 	     BMDPixelFormat m_pixelFormat,
-	     const char* m_videoInputFile);
+	     const char* m_videoInputFile,
+	     std::list<uint8_t*> &output,
+	     std::mutex &output_mutex);
 
     bool Run();
 
