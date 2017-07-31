@@ -48,6 +48,7 @@
 #include <cassert>
 #include <list>
 #include <mutex>
+#include <random>
 #include <memory>
 #include "Playback.hh"
 #include "exception.hh"
@@ -144,7 +145,9 @@ Playback::Playback(int m_deckLinkIndex,
 		   BMDPixelFormat m_pixelFormat,
 		   const char* m_videoInputFile,
 		   std::list<uint8_t*> &output,
-		   std::mutex &output_mutex) :
+		   std::mutex &output_mutex,
+		   int framesDelay,
+		   int stddev) :
   
     m_refCount(1),
     m_running(false),
@@ -166,9 +169,12 @@ Playback::Playback(int m_deckLinkIndex,
     m_videoInputFile(m_videoInputFile),
     output(output),
     output_mutex(output_mutex),
+    gen(std::random_device{}()),
     m_logfile(),
     scheduled_timestamp_cpu(),
-    scheduled_timestamp_decklink()
+    scheduled_timestamp_decklink(),
+    framesDelay(framesDelay),
+    dist(0, stddev)
 {}
 
 bool Playback::Run()
@@ -363,6 +369,7 @@ void Playback::StartRunning()
     m_totalFramesCompleted = 0;
     //for (unsigned i = 0; i < m_framesPerSecond; i++)
     //for (unsigned i = 0; i < 9; i++)
+    //for (unsigned i = 0; i < (unsigned) framesDelay; i++)
     ScheduleNextFrame(true);
 
     m_deckLinkOutput->StartScheduledPlayback(0, m_frameTimescale, 1.0);
@@ -414,11 +421,18 @@ void Playback::ScheduleNextFrame(bool prerolling)
     if (true) {
       {
 	std::lock_guard<std::mutex> guard(output_mutex);	
-	if (!output.empty()) {
-	  std::memcpy(frameBytes, output.front(), 1920*1080*4);
+	//if (!output.empty()) {
+        if (output.size() >= (unsigned) framesDelay) {
+	  uint8_t* pulledFrame = output.front();
+	  /*for (size_t i = 0; i < 1920*1080*4; ++i) {
+	    if (i % 4 != 3) {
+	      pulledFrame[i] += (uint8_t) dist(gen);
+	    }
+	    }*/
 	  output.pop_front();
-	  std::cout << output.size() << '\n';
+	  std::memcpy(frameBytes, pulledFrame, 1920*1080*4);
 	}
+	else std::cout << "size: " << output.size() << '\n';
       }
 
 

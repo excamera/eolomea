@@ -29,12 +29,12 @@
 #define __PLAYBACK_HH__
 
 #include "DeckLinkAPI.h"
-//#include "Config.h"
 #include "file.hh"
 #include <fstream>
 #include <list>
 #include <chrono>
 #include <mutex>
+#include <random>
 
 using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
@@ -65,8 +65,9 @@ private:
     BMDPixelFormat m_pixelFormat;
     const char* m_videoInputFile;
 
-    std::list<uint8_t*>     &output;
-    std::mutex              &output_mutex;
+    std::list<uint8_t*>             &output;
+    std::mutex                      &output_mutex;    
+    std::mt19937                    gen;
 
     std::ofstream           m_logfile;
   //File                    m_infile;
@@ -85,13 +86,18 @@ private:
     void            PrintStatusLine(uint32_t queued);
 
 public:
+    int framesDelay; 
+    std::normal_distribution<float> dist;
+
     Playback(int m_deckLinkIndex,
 	     int m_displayModeIndex,
 	     BMDVideoOutputFlags m_outputFlags,
 	     BMDPixelFormat m_pixelFormat,
 	     const char* m_videoInputFile,
 	     std::list<uint8_t*> &output,
-	     std::mutex &output_mutex);
+	     std::mutex &output_mutex,
+	     int framesDelay,
+	     int stddev);
 
     bool Run();
 

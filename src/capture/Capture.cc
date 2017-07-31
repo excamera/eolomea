@@ -57,9 +57,7 @@ using std::chrono::microseconds;
 std::queue<IDeckLinkVideoInputFrame*> frame_queue;
 std::mutex frame_queue_lock;
 
-std::queue<IDeckLinkVideoInputFrame*> output_queue;
-
- const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
+const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
 static BMDTimeScale prev_frame_recieved_time = (BMDTimeScale)0;
 
 static pthread_mutex_t  g_sleepMutex;
@@ -77,25 +75,26 @@ static int64_t  g_frameCount = 0;
 std::list<uint8_t*>     output;
 std::mutex              output_mutex;
 
-DeckLinkCaptureDelegate::DeckLinkCaptureDelegate() :
-    m_refCount(1)
+DeckLinkCaptureDelegate::DeckLinkCaptureDelegate(int framesDelay) :
+  framesDelay(framesDelay),
+  m_refCount(1)
 {
 }
 
 ULONG DeckLinkCaptureDelegate::AddRef(void)
 {
-    return __sync_add_and_fetch(&m_refCount, 1);
+  return __sync_add_and_fetch(&m_refCount, 1);
 }
 
 ULONG DeckLinkCaptureDelegate::Release(void)
 {
-    int32_t newRefValue = __sync_sub_and_fetch(&m_refCount, 1);
-    if (newRefValue == 0)
+  int32_t newRefValue = __sync_sub_and_fetch(&m_refCount, 1);
+  if (newRefValue == 0)
     {
-        delete this;
-        return 0;
+      delete this;
+      return 0;
     }
-    return newRefValue;
+  return newRefValue;
 }
 
 void DeckLinkCaptureDelegate::preview(void*, int) {}
@@ -105,437 +104,418 @@ void DeckLinkCaptureDelegate::preview(void*, int) {}
 // TODO(squeakymouse) have the frames be put into a list/queue/vector that can be read by the playback code.
 HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket*)
 {
-    void*                               frameBytes;
+  void*                               frameBytes;
 
-    /* IMPORTANT: get the frame arrived timestamp */
-    //time_point<high_resolution_clock> tp = high_resolution_clock::now();
+  /* IMPORTANT: get the frame arrived timestamp */
+  //time_point<high_resolution_clock> tp = high_resolution_clock::now();
 
-    BMDTimeValue decklink_hardware_timestamp;
-    BMDTimeValue decklink_time_in_frame;
-    BMDTimeValue decklink_ticks_per_frame;
-    HRESULT ret;
-    ret = g_deckLinkInput->GetHardwareReferenceClock(ticks_per_second,
-                                                     &decklink_hardware_timestamp,
-                                                     &decklink_time_in_frame,
-                                                     &decklink_ticks_per_frame);
+  BMDTimeValue decklink_hardware_timestamp;
+  BMDTimeValue decklink_time_in_frame;
+  BMDTimeValue decklink_ticks_per_frame;
+  HRESULT ret;
+  ret = g_deckLinkInput->GetHardwareReferenceClock(ticks_per_second,
+						   &decklink_hardware_timestamp,
+						   &decklink_time_in_frame,
+						   &decklink_ticks_per_frame);
 
-    BMDTimeValue decklink_frame_reference_timestamp;
-    BMDTimeValue decklink_frame_reference_duration;
-    if( (ret = videoFrame->GetHardwareReferenceTimestamp(ticks_per_second,
-                                                         &decklink_frame_reference_timestamp,
-                                                         &decklink_frame_reference_duration) ) != S_OK ) {
+  BMDTimeValue decklink_frame_reference_timestamp;
+  BMDTimeValue decklink_frame_reference_duration;
 
-        std::cerr << "GetHardwareReferenceTimestamp: could not get HardwareReferenceTimestamp for frame timestamp" << std::endl;
-        return ret;
-    }
+  if( (ret = videoFrame->GetHardwareReferenceTimestamp(ticks_per_second,
+						       &decklink_frame_reference_timestamp,
+						       &decklink_frame_reference_duration) ) != S_OK ) {
 
-    if( prev_frame_recieved_time == 0 ){
-        prev_frame_recieved_time = decklink_frame_reference_timestamp;
-    }
-    else if( decklink_frame_reference_timestamp - prev_frame_recieved_time > 20000 ){
-        std::cerr << "Frame was late! Delay was: " << decklink_frame_reference_timestamp - prev_frame_recieved_time << std::endl;
-        //throw std::runtime_error("Capture was LATE when capturing a frame.\n");
-    }
-    else{
-        prev_frame_recieved_time = decklink_frame_reference_timestamp;
-    }
+    std::cerr << "GetHardwareReferenceTimestamp: could not get HardwareReferenceTimestamp for frame timestamp" << std::endl;
+    return ret;
+  }
 
-    // Handle Video Frame
-    if (videoFrame)
+  if( prev_frame_recieved_time == 0 ){
+    prev_frame_recieved_time = decklink_frame_reference_timestamp;
+  }
+  else if( decklink_frame_reference_timestamp - prev_frame_recieved_time > 20000 ){
+    std::cerr << "Frame was late! Delay was: " << decklink_frame_reference_timestamp - prev_frame_recieved_time << std::endl;
+    //throw std::runtime_error("Capture was LATE when capturing a frame.\n");
+  }
+  else{
+    prev_frame_recieved_time = decklink_frame_reference_timestamp;
+  }
+
+  // Handle Video Frame
+  if (videoFrame)
     {
-        // If 3D mode is enabled we retreive the 3D extensions interface which gives.
-        // us access to the right eye frame by calling GetFrameForRightEye() .
+      // If 3D mode is enabled we retreive the 3D extensions interface which gives.
+      // us access to the right eye frame by calling GetFrameForRightEye() .
 
-        if (videoFrame->GetFlags() & bmdFrameHasNoInputSource)
+      if (videoFrame->GetFlags() & bmdFrameHasNoInputSource)
         {
-            printf("Frame received (#%lu) - No input signal detected\n", g_frameCount);
+	  printf("Frame received (#%lu) - No input signal detected\n", g_frameCount);
         }
-        else
+      else
         {
 	  //uint64_t framesize = videoFrame->GetRowBytes() * videoFrame->GetHeight();
 
-            videoFrame->GetBytes(&frameBytes);
-	    {
-	      std::lock_guard<std::mutex> lg(output_mutex);		  
-	      if(output.size() < 1){
-		output.push_back((uint8_t*)frameBytes);
-	      }
-	      else{
-		std::cout << "full!\n"; 
-	      }
+	  videoFrame->GetBytes(&frameBytes);
+	  {
+	    std::lock_guard<std::mutex> lg(output_mutex);		  
+	    if(output.size() <= (unsigned) framesDelay){
+	      output.push_back((uint8_t*)frameBytes);
 	    }
-            // Chunk chunk((uint8_t*)frameBytes, framesize);
+	    else{
+	      std::cout << "full!\n"; 
+	    }
+	  }
 
-            // std::pair<uint64_t, uint64_t> barcodes { 0, 1 };
+	  // Chunk chunk((uint8_t*)frameBytes, framesize);
 
-            // if ( g_config.m_pixelFormat == bmdFormat8BitYUV ) {
-            //   UYVYImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
-            //   //barcodes = Barcode::readBarcodes(img);
-            // }
-            // else if ( g_config.m_pixelFormat == bmdFormat8BitBGRA ) {
-            //   RGBImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
-            //   //barcodes = Barcode::readBarcodes(img);
-            // }
+	  // std::pair<uint64_t, uint64_t> barcodes { 0, 1 };
 
-            // printf("Frame received (#%lu) - %s - Size: %li bytes\n",
-            //        g_frameCount,
-            //        "Valid Frame",
-            //        framesize);
+	  // if ( g_config.m_pixelFormat == bmdFormat8BitYUV ) {
+	  //   UYVYImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
+	  //   //barcodes = Barcode::readBarcodes(img);
+	  // }
+	  // else if ( g_config.m_pixelFormat == bmdFormat8BitBGRA ) {
+	  //   RGBImage img(chunk, videoFrame->GetWidth(), videoFrame->GetHeight());
+	  //   //barcodes = Barcode::readBarcodes(img);
+	  // }
 
-            // /* IMPORTANT: log the timestamps  */
-            // if (barcodes.first != 0xFFFFFFFFFFFFFFFF
-            //     || barcodes.second != 0xFFFFFFFFFFFFFFFF) {
+	  // printf("Frame received (#%lu) - %s - Size: %li bytes\n",
+	  //        g_frameCount,
+	  //        "Valid Frame",
+	  //        framesize);
 
-            //     // if (logfile.is_open())
-            //     //     logfile << g_validFrameCount << ","
-            //     //             << barcodes.first << "," << barcodes.second << ","
-            //     //             << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-            //     //             << decklink_hardware_timestamp << ","
-            //     //             << decklink_frame_reference_timestamp << ","
-            //     //             << decklink_frame_reference_duration
-            //     //             << std::endl;
-            //     // else
-            //     //     std::cout   << g_validFrameCount << ","
-            //     //                 << barcodes.first << "," << barcodes.second << ","
-            //     //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-            //     //                 << decklink_hardware_timestamp << ","
-            //     //                 << decklink_frame_reference_timestamp << ","
-            //     //                 << decklink_frame_reference_duration
-            //     //                 << std::endl;
-            //     g_validFrameCount++;
+	  // /* IMPORTANT: log the timestamps  */
+	  // if (barcodes.first != 0xFFFFFFFFFFFFFFFF
+	  //     || barcodes.second != 0xFFFFFFFFFFFFFFFF) {
 
-            //     if (g_videoOutputFile != -1)
-            //     {
-	    // 	  std::lock_guard<std::mutex> lg(frame_queue_lock);
-	    // 	  videoFrame->AddRef();
-	    // 	  frame_queue.push(videoFrame);
-	    // 	  //ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
-	    // 	  //if (ret < 0)
-	    // 	  //fprintf(stderr, "Cannot write to file.\n");
-            //     }
-            // }
+	  //     // if (logfile.is_open())
+	  //     //     logfile << g_validFrameCount << ","
+	  //     //             << barcodes.first << "," << barcodes.second << ","
+	  //     //             << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+	  //     //             << decklink_hardware_timestamp << ","
+	  //     //             << decklink_frame_reference_timestamp << ","
+	  //     //             << decklink_frame_reference_duration
+	  //     //             << std::endl;
+	  //     // else
+	  //     //     std::cout   << g_validFrameCount << ","
+	  //     //                 << barcodes.first << "," << barcodes.second << ","
+	  //     //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
+	  //     //                 << decklink_hardware_timestamp << ","
+	  //     //                 << decklink_frame_reference_timestamp << ","
+	  //     //                 << decklink_frame_reference_duration
+	  //     //                 << std::endl;
+	  //     g_validFrameCount++;
+
+	  //     if (g_videoOutputFile != -1)
+	  //     {
+	  // 	  std::lock_guard<std::mutex> lg(frame_queue_lock);
+	  // 	  videoFrame->AddRef();
+	  // 	  frame_queue.push(videoFrame);
+	  // 	  //ssize_t ret = write(g_videoOutputFile, frameBytes, framesize);
+	  // 	  //if (ret < 0)
+	  // 	  //fprintf(stderr, "Cannot write to file.\n");
+	  //     }
+	  // }
 
 
-            // preview(frameBytes, videoFrame->GetRowBytes() * videoFrame->GetHeight());
+	  // preview(frameBytes, videoFrame->GetRowBytes() * videoFrame->GetHeight());
         }
 
-        g_frameCount++;
+      g_frameCount++;
     }
 
-    if (g_config.m_maxFrames > 0 && videoFrame && g_frameCount >= g_config.m_maxFrames)
+  if (g_config.m_maxFrames > 0 && videoFrame && g_frameCount >= g_config.m_maxFrames)
     {
-        g_do_exit = true;
-        pthread_cond_signal(&g_sleepCond);
+      g_do_exit = true;
+      pthread_cond_signal(&g_sleepCond);
     }
 
-    return S_OK;
+  return S_OK;
 }
 
 
 HRESULT DeckLinkCaptureDelegate::VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDeckLinkDisplayMode *mode, BMDDetectedVideoInputFormatFlags formatFlags)
 {
-    // This only gets called if bmdVideoInputEnableFormatDetection was set
-    // when enabling video input
-    HRESULT result;
-    char*   displayModeName = NULL;
-    BMDPixelFormat  pixelFormat = bmdFormat10BitYUV;
+  // This only gets called if bmdVideoInputEnableFormatDetection was set
+  // when enabling video input
+  HRESULT result;
+  char*   displayModeName = NULL;
+  BMDPixelFormat  pixelFormat = bmdFormat10BitYUV;
 
-    if (formatFlags & bmdDetectedVideoInputRGB444)
-        pixelFormat = bmdFormat10BitRGB;
+  if (formatFlags & bmdDetectedVideoInputRGB444)
+    pixelFormat = bmdFormat10BitRGB;
 
-    mode->GetName((const char**)&displayModeName);
-    printf("Video format changed to %s %s\n", displayModeName, formatFlags & bmdDetectedVideoInputRGB444 ? "RGB" : "YUV");
+  mode->GetName((const char**)&displayModeName);
+  printf("Video format changed to %s %s\n", displayModeName, formatFlags & bmdDetectedVideoInputRGB444 ? "RGB" : "YUV");
 
-    if (displayModeName)
-        free(displayModeName);
+  if (displayModeName)
+    free(displayModeName);
 
-    if (g_deckLinkInput)
+  if (g_deckLinkInput)
     {
-        g_deckLinkInput->StopStreams();
+      g_deckLinkInput->StopStreams();
 
-        result = g_deckLinkInput->EnableVideoInput(mode->GetDisplayMode(), pixelFormat, g_config.m_inputFlags);
-        if (result != S_OK)
+      result = g_deckLinkInput->EnableVideoInput(mode->GetDisplayMode(), pixelFormat, g_config.m_inputFlags);
+      if (result != S_OK)
         {
-            fprintf(stderr, "Failed to switch video mode\n");
-            goto bail;
+	  fprintf(stderr, "Failed to switch video mode\n");
+	  goto bail;
         }
 
-        g_deckLinkInput->StartStreams();
+      g_deckLinkInput->StartStreams();
     }
 
-bail:
-    return S_OK;
+ bail:
+  return S_OK;
 }
 
 static void sigfunc(int signum)
 {
-    if (signum == SIGINT || signum == SIGTERM)
-        g_do_exit = true;
+  if (signum == SIGINT || signum == SIGTERM)
+    g_do_exit = true;
 
-    pthread_cond_signal(&g_sleepCond);
+  pthread_cond_signal(&g_sleepCond);
 }
 
 int main(int argc, char *argv[])
 {
-    HRESULT                         result;
-    int                             exitStatus = 1;
-    int                             idx;
+  HRESULT                         result;
+  int                             exitStatus = 1;
+  int                             idx;
 
-    IDeckLinkIterator*              deckLinkIterator = NULL;
-    IDeckLink*                      deckLink = NULL;
+  IDeckLinkIterator*              deckLinkIterator = NULL;
+  IDeckLink*                      deckLink = NULL;
 
-    IDeckLinkAttributes*            deckLinkAttributes = NULL;
-    bool                            formatDetectionSupported;
+  IDeckLinkAttributes*            deckLinkAttributes = NULL;
+  bool                            formatDetectionSupported;
 
-    IDeckLinkDisplayModeIterator*   displayModeIterator = NULL;
-    IDeckLinkDisplayMode*           displayMode = NULL;
-    char*                           displayModeName = NULL;
-    BMDDisplayModeSupport           displayModeSupported;
+  IDeckLinkDisplayModeIterator*   displayModeIterator = NULL;
+  IDeckLinkDisplayMode*           displayMode = NULL;
+  char*                           displayModeName = NULL;
+  BMDDisplayModeSupport           displayModeSupported;
 
-    DeckLinkCaptureDelegate*        delegate = NULL;
+  DeckLinkCaptureDelegate*        delegate = NULL;
 
-    Playback *my_playback;
-    BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
-    std::thread t;
+  Playback *my_playback;
+
+  BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
+  std::thread t;
+
+  pthread_mutex_init(&g_sleepMutex, NULL);
+  pthread_cond_init(&g_sleepCond, NULL);
+
+  signal(SIGINT, sigfunc);
+  signal(SIGTERM, sigfunc);
+  signal(SIGHUP, sigfunc);
+
+  // Process the command line arguments
+  if (!g_config.ParseArguments(argc, argv))
+    {
+      g_config.DisplayUsage(exitStatus);
+      goto bail;
+    }
+
+  // Get the DeckLink device
+  deckLinkIterator = CreateDeckLinkIteratorInstance();
+  if (!deckLinkIterator)
+    {
+      fprintf(stderr, "This application requires the DeckLink drivers installed.\n");
+      goto bail;
+    }
+
+  idx = g_config.m_deckLinkIndex;
+
+  while ((result = deckLinkIterator->Next(&deckLink)) == S_OK)
+    {
+      if (idx == 0)
+	break;
+      --idx;
+
+      deckLink->Release();
+    }
+
+  if (result != S_OK || deckLink == NULL)
+    {
+      fprintf(stderr, "Unable to get DeckLink device %u\n", g_config.m_deckLinkIndex);
+      goto bail;
+    }
+
+  // Get the input (capture) interface of the DeckLink device
+  result = deckLink->QueryInterface(IID_IDeckLinkInput, (void**)&g_deckLinkInput);
+  if (result != S_OK)
+    goto bail;
+
+  // Get the display mode
+  if (g_config.m_displayModeIndex == -1)
+    {
+      // Check the card supports format detection
+      result = deckLink->QueryInterface(IID_IDeckLinkAttributes, (void**)&deckLinkAttributes);
+      if (result == S_OK)
+        {
+	  result = deckLinkAttributes->GetFlag(BMDDeckLinkSupportsInputFormatDetection, &formatDetectionSupported);
+	  if (result != S_OK || !formatDetectionSupported)
+            {
+	      fprintf(stderr, "Format detection is not supported on this device\n");
+	      goto bail;
+            }
+        }
+
+      g_config.m_inputFlags |= bmdVideoInputEnableFormatDetection;
+
+      // Format detection still needs a valid mode to start with
+      idx = 0;
+    }
+  else
+    {
+      idx = g_config.m_displayModeIndex;
+    }
+
+  result = g_deckLinkInput->GetDisplayModeIterator(&displayModeIterator);
+  if (result != S_OK)
+    goto bail;
+
+  while ((result = displayModeIterator->Next(&displayMode)) == S_OK)
+    {
+      if (idx == 0)
+	break;
+      --idx;
+
+      displayMode->Release();
+    }
+
+  if (result != S_OK || displayMode == NULL)
+    {
+      fprintf(stderr, "Unable to get display mode %d\n", g_config.m_displayModeIndex);
+      goto bail;
+    }
+
+  // Get display mode name
+  result = displayMode->GetName((const char**)&displayModeName);
+  if (result != S_OK)
+    {
+      displayModeName = (char *)malloc(32);
+      snprintf(displayModeName, 32, "[index %d]", g_config.m_displayModeIndex);
+    }
+
+  // Check display mode is supported with given options
+  result = g_deckLinkInput->DoesSupportVideoMode(displayMode->GetDisplayMode(), g_config.m_pixelFormat, bmdVideoInputFlagDefault, &displayModeSupported, NULL);
+  if (result != S_OK)
+    goto bail;
+
+  if (displayModeSupported == bmdDisplayModeNotSupported)
+    {
+      fprintf(stderr, "The display mode %s is not supported with the selected pixel format\n", displayModeName);
+      goto bail;
+    }
+
+  // Print the selected configuration
+  g_config.DisplayConfiguration();
+
+  // Configure the capture callback
+  delegate = new DeckLinkCaptureDelegate(g_config.m_framesDelay);
+  g_deckLinkInput->SetCallback(delegate);
+
+  // Open output files
+  if (g_config.m_videoOutputFile != NULL)
+    {
+      g_videoOutputFile = open(g_config.m_videoOutputFile, O_WRONLY|O_CREAT|O_TRUNC, 0664);
+      if (g_videoOutputFile < 0)
+        {
+	  fprintf(stderr, "Could not open video output file \"%s\"\n", g_config.m_videoOutputFile);
+	  goto bail;
+        }
+    }
+
+  /*if (g_config.m_logFilename != NULL) {
+    logfile.open(g_config.m_logFilename, std::ios::out);
+    if (!logfile.is_open()) {
+    fprintf(stderr, "Error opening logfile.\n");
+    goto bail;
+    }
+    else {*/
+  /* IMPORTANT: write header to csv log file */
+  /*std::time_t time = std::time(nullptr);
+    logfile << "# Reading from decklink interface to the video file: " << g_config.m_videoOutputFile << std::endl
+    << "# Time stamp: " << std::asctime(std::localtime(&time))
+    << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_timestamp,decklink_hardwaretimestamp,decklink_frame_reference_timestamp,decklink_frame_reference_duration"
+    << "\n";
+    }
+    }*/
+
+  my_playback = new Playback(0, 11, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_stddev);
+
+  t = std::move( std::thread([&](){my_playback->Run();}) );
+
+  // Block main thread until signal occurs
+  // Start capturing
+  result = g_deckLinkInput->EnableVideoInput(displayMode->GetDisplayMode(), g_config.m_pixelFormat, g_config.m_inputFlags);
+  if (result != S_OK)
+    {
+      fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
+      goto bail;
+    }
     
-    pthread_mutex_init(&g_sleepMutex, NULL);
-    pthread_cond_init(&g_sleepCond, NULL);
-
-    signal(SIGINT, sigfunc);
-    signal(SIGTERM, sigfunc);
-    signal(SIGHUP, sigfunc);
-
-    // Process the command line arguments
-    if (!g_config.ParseArguments(argc, argv))
+  result = g_deckLinkInput->StartStreams();
+  if (result != S_OK)
+    goto bail;
+    
+  while (!g_do_exit) 
     {
-        g_config.DisplayUsage(exitStatus);
-        goto bail;
+      char input;
+      int value;
+      std::cin >> input >> value;
+      switch(tolower(input))
+	{
+	case 'd':
+	  delegate->framesDelay = value;
+	  break;
+	case 'n':
+	  my_playback->dist = std::normal_distribution<float> (0, value);
+	}	
     }
+  // All Okay.
+  exitStatus = 0;
 
-    // Get the DeckLink device
-    deckLinkIterator = CreateDeckLinkIteratorInstance();
-    if (!deckLinkIterator)
+  pthread_mutex_lock(&g_sleepMutex);
+  pthread_cond_wait(&g_sleepCond, &g_sleepMutex);
+  pthread_mutex_unlock(&g_sleepMutex);
+
+  fprintf(stderr, "Stopping Capture\n");
+  g_deckLinkInput->StopStreams();
+  g_deckLinkInput->DisableVideoInput();
+    
+ bail:
+  if (g_videoOutputFile != 0)
+    close(g_videoOutputFile);
+
+  if (displayModeName != NULL)
+    free(displayModeName);
+
+  if (displayMode != NULL)
+    displayMode->Release();
+
+  if (displayModeIterator != NULL)
+    displayModeIterator->Release();
+
+  if (delegate != NULL)
+    delegate->Release();
+
+  if (g_deckLinkInput != NULL)
     {
-        fprintf(stderr, "This application requires the DeckLink drivers installed.\n");
-        goto bail;
+      g_deckLinkInput->Release();
+      g_deckLinkInput = NULL;
     }
 
-    idx = g_config.m_deckLinkIndex;
+  if (deckLinkAttributes != NULL)
+    deckLinkAttributes->Release();
 
-    while ((result = deckLinkIterator->Next(&deckLink)) == S_OK)
-    {
-        if (idx == 0)
-            break;
-        --idx;
+  if (deckLink != NULL)
+    deckLink->Release();
 
-        deckLink->Release();
-    }
+  if (deckLinkIterator != NULL)
+    deckLinkIterator->Release();
 
-    if (result != S_OK || deckLink == NULL)
-    {
-        fprintf(stderr, "Unable to get DeckLink device %u\n", g_config.m_deckLinkIndex);
-        goto bail;
-    }
+  if (logfile.is_open())
+    logfile.close();
 
-    // Get the input (capture) interface of the DeckLink device
-    result = deckLink->QueryInterface(IID_IDeckLinkInput, (void**)&g_deckLinkInput);
-    if (result != S_OK)
-        goto bail;
-
-    // Get the display mode
-    if (g_config.m_displayModeIndex == -1)
-    {
-        // Check the card supports format detection
-        result = deckLink->QueryInterface(IID_IDeckLinkAttributes, (void**)&deckLinkAttributes);
-        if (result == S_OK)
-        {
-            result = deckLinkAttributes->GetFlag(BMDDeckLinkSupportsInputFormatDetection, &formatDetectionSupported);
-            if (result != S_OK || !formatDetectionSupported)
-            {
-                fprintf(stderr, "Format detection is not supported on this device\n");
-                goto bail;
-            }
-        }
-
-        g_config.m_inputFlags |= bmdVideoInputEnableFormatDetection;
-
-        // Format detection still needs a valid mode to start with
-        idx = 0;
-    }
-    else
-    {
-        idx = g_config.m_displayModeIndex;
-    }
-
-    result = g_deckLinkInput->GetDisplayModeIterator(&displayModeIterator);
-    if (result != S_OK)
-        goto bail;
-
-    while ((result = displayModeIterator->Next(&displayMode)) == S_OK)
-    {
-        if (idx == 0)
-            break;
-        --idx;
-
-        displayMode->Release();
-    }
-
-    if (result != S_OK || displayMode == NULL)
-    {
-        fprintf(stderr, "Unable to get display mode %d\n", g_config.m_displayModeIndex);
-        goto bail;
-    }
-
-    // Get display mode name
-    result = displayMode->GetName((const char**)&displayModeName);
-    if (result != S_OK)
-    {
-        displayModeName = (char *)malloc(32);
-        snprintf(displayModeName, 32, "[index %d]", g_config.m_displayModeIndex);
-    }
-
-    // Check display mode is supported with given options
-    result = g_deckLinkInput->DoesSupportVideoMode(displayMode->GetDisplayMode(), g_config.m_pixelFormat, bmdVideoInputFlagDefault, &displayModeSupported, NULL);
-    if (result != S_OK)
-        goto bail;
-
-    if (displayModeSupported == bmdDisplayModeNotSupported)
-    {
-        fprintf(stderr, "The display mode %s is not supported with the selected pixel format\n", displayModeName);
-        goto bail;
-    }
-
-    // Print the selected configuration
-    g_config.DisplayConfiguration();
-
-    // Configure the capture callback
-    delegate = new DeckLinkCaptureDelegate();
-    g_deckLinkInput->SetCallback(delegate);
-
-    // Open output files
-    if (g_config.m_videoOutputFile != NULL)
-    {
-        g_videoOutputFile = open(g_config.m_videoOutputFile, O_WRONLY|O_CREAT|O_TRUNC, 0664);
-        if (g_videoOutputFile < 0)
-        {
-            fprintf(stderr, "Could not open video output file \"%s\"\n", g_config.m_videoOutputFile);
-            goto bail;
-        }
-    }
-
-    if (g_config.m_logFilename != NULL) {
-        logfile.open(g_config.m_logFilename, std::ios::out);
-        if (!logfile.is_open()) {
-            fprintf(stderr, "Error opening logfile.\n");
-            goto bail;
-        }
-        else {
-            /* IMPORTANT: write header to csv log file */
-            std::time_t time = std::time(nullptr);
-            logfile << "# Reading from decklink interface to the video file: " << g_config.m_videoOutputFile << std::endl
-                    << "# Time stamp: " << std::asctime(std::localtime(&time))
-                    << "# frame_index,upper_left_barcode,lower_right_barcode,cpu_timestamp,decklink_hardwaretimestamp,decklink_frame_reference_timestamp,decklink_frame_reference_duration"
-                    << "\n";
-        }
-    }
-
-    my_playback = new Playback(0, 11, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex);
-    t = std::move( std::thread([&](){my_playback->Run();}) );
-
-    // Block main thread until signal occurs
-    while (!g_do_exit)
-    {
-        // Start capturing
-        result = g_deckLinkInput->EnableVideoInput(displayMode->GetDisplayMode(), g_config.m_pixelFormat, g_config.m_inputFlags);
-        if (result != S_OK)
-        {
-            fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
-            goto bail;
-        }
-
-        result = g_deckLinkInput->StartStreams();
-        if (result != S_OK)
-            goto bail;
-
-	while(true){}
-
-        while ( !g_do_exit || !frame_queue.empty()) {
-            IDeckLinkVideoInputFrame* frame = nullptr;
-            {
-                std::lock_guard<std::mutex> lg(frame_queue_lock);
-                if( !frame_queue.empty() ) {
-                    frame = frame_queue.front();
-                    frame_queue.pop();
-                }
-            }
-            if ( frame != nullptr ){
-                uint8_t* buffer = nullptr;
-                frame->GetBytes((void**)&buffer);
-
-		// TODO(squeakymouse) this is where you should push the frame to the output side of the blackmagic card!
-		//output_queue.push(frame);
-		// {
-		//   std::lock_guard<std::mutex> lg(output_mutex);		  
-		//   if(output.size() < 5){
-		//     output.push_back(buffer);
-		//   }
-		// }
-                //ssize_t ret = write(g_videoOutputFile, buffer, frame->GetRowBytes() * frame->GetHeight());
-                //if (ret < 0)
-                //    fprintf(stderr, "Cannot write to file.\n");
-
-		frame->Release();
-            }
-            else{
-                usleep(100);
-            }
-        }
-
-        // All Okay.
-        exitStatus = 0;
-
-        pthread_mutex_lock(&g_sleepMutex);
-        pthread_cond_wait(&g_sleepCond, &g_sleepMutex);
-        pthread_mutex_unlock(&g_sleepMutex);
-
-        fprintf(stderr, "Stopping Capture\n");
-        g_deckLinkInput->StopStreams();
-        g_deckLinkInput->DisableVideoInput();
-    }
-
-bail:
-    if (g_videoOutputFile != 0)
-        close(g_videoOutputFile);
-
-    if (displayModeName != NULL)
-        free(displayModeName);
-
-    if (displayMode != NULL)
-        displayMode->Release();
-
-    if (displayModeIterator != NULL)
-        displayModeIterator->Release();
-
-    if (delegate != NULL)
-        delegate->Release();
-
-    if (g_deckLinkInput != NULL)
-    {
-        g_deckLinkInput->Release();
-        g_deckLinkInput = NULL;
-    }
-
-    if (deckLinkAttributes != NULL)
-        deckLinkAttributes->Release();
-
-    if (deckLink != NULL)
-        deckLink->Release();
-
-    if (deckLinkIterator != NULL)
-        deckLinkIterator->Release();
-
-    if (logfile.is_open())
-        logfile.close();
-
-    return exitStatus;
+  return exitStatus;
 }

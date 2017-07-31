@@ -33,7 +33,10 @@
 class DeckLinkCaptureDelegate : public IDeckLinkInputCallback
 {
 public:
-    DeckLinkCaptureDelegate();
+
+    int                 framesDelay;
+
+    DeckLinkCaptureDelegate(int framesDelay);
 
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, LPVOID *) { return E_NOINTERFACE; }
     virtual ULONG STDMETHODCALLTYPE AddRef(void);

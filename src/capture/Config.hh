@@ -48,6 +48,9 @@ public:
     BMDVideoInputFlags      m_inputFlags;
     BMDPixelFormat          m_pixelFormat;
 
+    int                     m_framesDelay;
+    int                     m_stddev;
+
     const char*             m_videoOutputFile;
     const char*             m_logFilename;
     
