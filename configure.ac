@@ -20,6 +20,14 @@ AC_PROG_RANLIB
 # Checks for libraries.
 PKG_CHECK_MODULES([XCB], [xcb])
 PKG_CHECK_MODULES([XCBPRESENT], [xcb-present])
+PKG_CHECK_MODULES([AVFORMAT], [libavformat])
+PKG_CHECK_MODULES([AVCODEC], [libavcodec])
+PKG_CHECK_MODULES([AVUTIL], [libavutil])
+PKG_CHECK_MODULES([AVFILTER], [libavfilter])
+PKG_CHECK_MODULES([AVDEVICE], [libavdevice])
+
+# PKG_CHECK_MODULES([AVDEVICE], [libavdevice])
+
 
 # Checks for header files.
 

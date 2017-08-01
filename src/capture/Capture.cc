@@ -41,6 +41,12 @@
 #include <ctime>
 #include <iostream>
 
+extern "C"{
+#include "libavcodec/avcodec.h"
+#include "libavutil/frame.h"
+#include "libavutil/imgutils.h"
+}
+
 #include "DeckLinkAPI.h"
 #include "Capture.hh"
 #include "Config.hh"
@@ -56,6 +62,16 @@ using std::chrono::microseconds;
 
 std::queue<IDeckLinkVideoInputFrame*> frame_queue;
 std::mutex frame_queue_lock;
+
+
+
+const AVCodec *codec;
+AVCodecContext *c = NULL;
+AVFrame *pic;
+AVPacket *pkt;
+
+
+
 
 const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
 static BMDTimeScale prev_frame_recieved_time = (BMDTimeScale)0;
@@ -158,6 +174,37 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
 	  {
 	    std::lock_guard<std::mutex> lg(output_mutex);		  
 	    if(output.size() <= (unsigned) framesDelay){
+	      
+	      //encode
+	      int ret = avcodec_send_frame(c, pic);
+	      if (ret < 0) {
+		fprintf(stderr, "error sending a frame for encoding\n");
+		exit(1);
+	      }
+	      ret = avcodec_receive_packet(c, pkt);
+	      if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+		return ret;
+	      else if (ret < 0) {
+		fprintf(stderr, "error during encoding\n");
+		exit(1);
+	      }
+	      
+	      //decode
+	      ret = avcodec_send_packet(c, pkt);
+	      if (ret < 0) {
+		fprintf(stderr, "Error sending a packet for decoding\n");
+		exit(1);
+	      }
+	      ret = avcodec_receive_frame(c, pic);
+	      if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+		return ret;
+	      else if (ret < 0) {
+		fprintf(stderr, "Error during decoding\n");
+		exit(1);
+	      }
+	      
+
+	      
 	      output.push_back((uint8_t*)frameBytes);
 	    }
 	    else{
@@ -300,6 +347,8 @@ int main(int argc, char *argv[])
   BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
   std::thread t;
 
+  int ret;
+
   pthread_mutex_init(&g_sleepMutex, NULL);
   pthread_cond_init(&g_sleepCond, NULL);
 
@@ -425,13 +474,6 @@ int main(int argc, char *argv[])
         }
     }
 
-  /*if (g_config.m_logFilename != NULL) {
-    logfile.open(g_config.m_logFilename, std::ios::out);
-    if (!logfile.is_open()) {
-    fprintf(stderr, "Error opening logfile.\n");
-    goto bail;
-    }
-    else {*/
   /* IMPORTANT: write header to csv log file */
   /*std::time_t time = std::time(nullptr);
     logfile << "# Reading from decklink interface to the video file: " << g_config.m_videoOutputFile << std::endl
@@ -453,11 +495,56 @@ int main(int argc, char *argv[])
       fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
       goto bail;
     }
+
+  
+
+  //LIBAV ADDITION
+  avcodec_register_all();
+  /* find the mpeg1video encoder */
+  codec = avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO);
+  if (!codec) {
+    fprintf(stderr, "codec not found\n");
+    exit(1);
+  }
+  c = avcodec_alloc_context3(codec);
+  pic = av_frame_alloc();
+  pkt = av_packet_alloc();
+  if (!pkt)
+    exit(1);
+  /* put sample parameters */
+  c->bit_rate = 400000;
+  /* resolution must be a multiple of two */
+  c->width = 352;
+  c->height = 288;
+  /* frames per second */
+  //c->time_base = (AVRational){1, 25};
+  //c->framerate = (AVRational){25, 1};
+  c->gop_size = 10; /* emit one intra frame every ten frames */
+  c->max_b_frames=1;
+  c->pix_fmt = AV_PIX_FMT_YUV420P;
+  /* open it */
+  if (avcodec_open2(c, codec, NULL) < 0) {
+    fprintf(stderr, "could not open codec\n");
+    exit(1);
+  }
+  pic->format = c->pix_fmt;
+  pic->width  = c->width;
+  pic->height = c->height;
+  ret = av_frame_get_buffer(pic, 32);
+  if (ret < 0) {
+    fprintf(stderr, "could not alloc the frame data\n");
+    exit(1);
+  }
+
+
+
+
+
     
   result = g_deckLinkInput->StartStreams();
   if (result != S_OK)
     goto bail;
-    
+
   while (!g_do_exit) 
     {
       char input;
@@ -472,6 +559,7 @@ int main(int argc, char *argv[])
 	  my_playback->dist = std::normal_distribution<float> (0, value);
 	}	
     }
+
   // All Okay.
   exitStatus = 0;
 
