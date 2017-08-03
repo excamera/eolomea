@@ -1,151 +1,165 @@
-#include<iostream>
+#include <iostream>
+#include <fstream>
+#include <memory>
+#include <vector>
 
-extern "C" {
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "libavcodec/avcodec.h"
-#include "libavutil/frame.h"
-#include "libavutil/imgutils.h"
-#include "libavutil/common.h"
-#include "libavutil/mathematics.h"
-#define INBUF_SIZE 4096
-}
+#include "h264_degrader.hh"
 
-static void pgm_save(unsigned char *buf, int wrap, int xsize, int ysize,
-                     char *filename)
-{
-  FILE *f;
-  int i;
-  f=fopen(filename,"w");
-  fprintf(f,"P5\n%d %d\n%d\n",xsize,ysize,255);
-  for(i=0;i<ysize;i++)
-    fwrite(buf + i * wrap,1,xsize,f);
-  fclose(f);
-}
-static void decode(AVCodecContext *dec_ctx, AVFrame *frame, AVPacket *pkt,
-                   const char *filename)
-{
-  char buf[1024];
-  int ret;
-  ret = avcodec_send_packet(dec_ctx, pkt);
-  if (ret < 0) {
-    fprintf(stderr, "Error sending a packet for decoding\n");
-    exit(1);
-  }
-  while (ret >= 0) {
-    ret = avcodec_receive_frame(dec_ctx, frame);
-    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-      return;
-    else if (ret < 0) {
-      fprintf(stderr, "Error during decoding\n");
-      exit(1);
-    }
-    printf("saving frame %3d\n", dec_ctx->frame_number);
-    fflush(stdout);
-    /* the picture is allocated by the decoder. no need to
-       free it */
-    snprintf(buf, sizeof(buf), filename, dec_ctx->frame_number);
-    pgm_save(frame->data[0], frame->linesize[0],
-	     frame->width, frame->height, buf);
-  }
-}
 int main(int argc, char **argv)
 {
-  const char *filename, *outfilename;
-  const AVCodec *codec;
-  AVCodecParserContext *parser;
-  AVCodecContext *c= NULL;
-  FILE *f;
-  AVFrame *picture;
-  uint8_t inbuf[INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
-  uint8_t *data;
-  size_t   data_size;
-  int ret;
-  AVPacket *pkt;
-  if (argc <= 2) {
-    fprintf(stderr, "Usage: %s <input file> <output file>\n", argv[0]);
-    exit(0);
-  }
-  filename    = argv[1];
-  outfilename = argv[2];
-  avcodec_register_all();
-  pkt = av_packet_alloc();
-  if (!pkt)
-    exit(1);
-  /* set end of buffer to 0 (this ensures that no overreading happens for damaged MPEG streams) */
-  memset(inbuf + INBUF_SIZE, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-  /* find the MPEG-1 video decoder */
-  codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-  if (!codec) {
-    fprintf(stderr, "codec not found\n");
-    exit(1);
-  }
-  c = avcodec_alloc_context3(codec);
-  /* put sample parameters */
-  //c->codec_id = CODEC_ID_MPEG4;
-  c->bit_rate = 400000;
-  /* resolution must be a multiple of two */
-  c->width = 352;
-  c->height = 288;
-  /* frames per second */
-  c->time_base = (AVRational){1, 25};
-  c->framerate = (AVRational){25, 1};
-  c->gop_size = 10; /* emit one intra frame every ten frames */
-  c->max_b_frames=1;
-  //c->pix_fmt = AV_PIX_FMT_YUV420P;
-  std::cout << "codec: " << codec->id << '\n';
-  parser = av_parser_init(AV_CODEC_ID_H264);
-  if (!parser) {
-    fprintf(stderr, "parser not found\n");
-    exit(1);
-  }
-  picture = av_frame_alloc();
-  /* For some codecs, such as msmpeg4 and mpeg4, width and height
-       MUST be initialized there because this information is not
-       available in the bitstream. */
-  /* open it */
-  if (avcodec_open2(c, codec, NULL) < 0) {
-    fprintf(stderr, "could not open codec\n");
-    exit(1);
-  }
-  f = fopen(filename, "rb");
-  if (!f) {
-    fprintf(stderr, "could not open %s\n", filename);
-    exit(1);
-  }
-  while (!feof(f)) {
-    //std::cout << "outer loop\n";
-    /* read raw data from the input file */
-    data_size = fread(inbuf, 1, INBUF_SIZE, f);
-    std::cout << "read\n";
-    if (!data_size)
-      break;
-    /* use the parser to split the data into frames */
-    data = inbuf;
-    while (data_size > 0) {
-      std::cout << "inner loop: " << data_size << '\n';
-      ret = av_parser_parse2(parser, c, &pkt->data, &pkt->size,
-			     data, data_size, AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
-      if (ret < 0) {
-	fprintf(stderr, "Error while parsing\n");
-	exit(1);
-      }
-      data      += ret;
-      data_size -= ret;
-      std::cout << "ret: " << ret <<  '\n';
-      std::cout << "data: " << data_size << '\n';
-      if (pkt->size) { std::cout << "decode\n";
-	decode(c, picture, pkt, outfilename);}
+    if(argc != 3){
+        std::cout << "usage: " << argv[0] << " <input.raw> <ouptut.raw>\n";
+        return 0;
     }
-  }
-  std::cout << "out of loop\n";
-  /* flush the decoder */
-  decode(c, picture, NULL, outfilename);
-  fclose(f);
-  av_parser_close(parser);
-  avcodec_free_context(&c);
-  av_frame_free(&picture);
-  av_packet_free(&pkt);
-  return 0;
+
+    const std::string input_filename = argv[1];
+    const std::string output_filename = argv[2];
+
+    std::cout << "input: " << input_filename << "\n";
+    std::cout << "ouput: " << output_filename << "\n";    
+
+    const size_t width = 1280;
+    const size_t height = 720;
+    const size_t bytes_per_pixel = 4;
+    const size_t frame_size = width*height*bytes_per_pixel;
+
+    std::ifstream infile(input_filename, std::ios::binary);
+    if(!infile.is_open()){
+        std::cout << "Could not open file: " << input_filename << "\n";
+        return 0;
+    }
+    
+    std::ofstream outfile(output_filename, std::ios::binary);
+    if(!outfile.is_open()){
+        std::cout << "Could not open file: " << input_filename << "\n";
+        return 0;
+    }
+
+    std::shared_ptr<uint8_t> input_buffer(new uint8_t[frame_size]);
+    std::shared_ptr<uint8_t> output_buffer(new uint8_t[frame_size]);
+    
+    H264_degrader degrader(width, height);
+
+    while(!infile.eof()){
+        infile.read((char*)input_buffer.get(), frame_size);
+        
+        // degrade
+        degrader.degrade(input_buffer.get(), output_buffer.get());
+
+        outfile.write((char*)output_buffer.get(), frame_size);
+    }
+
+    return 0;
 }
+/*
+int main(int argc, char *argv[]){
+    
+    if(argc != 3){
+        std::cout << "usage: " << argv[0] << " <input.mp4> <ouptut.raw>\n";
+        return 0;
+    }
+
+    const std::string input_filename = argv[1];
+    const std::string output_filename = argv[2];
+
+    std::cout << "input: " << input_filename << "\n";
+    std::cout << "ouput: " << output_filename << "\n";
+    
+    avcodec_register_all();
+
+    const std::string codec_name = "h264";
+    AVCodec *codec = avcodec_find_decoder_by_name(codec_name.c_str());
+    if(codec == NULL){
+        std::cout << "codec: " << codec_name << " not found!" << "\n";
+        return EXIT_FAILURE;
+    }
+    
+    AVCodecContext *context = avcodec_alloc_context3(codec);
+    if(context == NULL){
+        std::cout << "context: " << codec_name << " not found!" << "\n";
+        return EXIT_FAILURE;
+    }
+    
+    context->width = 640;
+    context->height = 480;
+
+    if(avcodec_open2(context, codec, NULL) < 0){
+        std::cout << "could not open avcodec" << "\n";;
+        return EXIT_FAILURE;
+    }
+    
+    AVFrame *frame = av_frame_alloc();
+    if(frame == NULL) {
+        std::cout << "AVFrame not allocated" << "\n";
+        return EXIT_FAILURE;        
+    }
+    
+    AVPacket *packet = av_packet_alloc();
+    if(packet == NULL) {
+        std::cout << "AVPacket not allocated" << "\n";
+        return EXIT_FAILURE;        
+    }
+
+    AVCodecParserContext *parser = av_parser_init(codec->id);
+    if(parser == NULL){
+        std::cout << "AVParser not allocated" << "\n";
+        return EXIT_FAILURE;
+    }
+    
+    // begin decoding
+    FILE *infile = fopen(input_filename.c_str(), "rb");
+    if(infile == NULL){
+        std::cout << "Could not open " << input_filename << "\n";
+        return EXIT_FAILURE;        
+    }
+    FILE *outfile = fopen(output_filename.c_str(), "wb");
+    if(outfile == NULL){
+        std::cout << "Could not open " << output_filename << "\n";
+        return EXIT_FAILURE;        
+    }
+
+
+    // decoding loop
+    std::cout << "starting decode\n";
+
+    uint8_t buffer[INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
+    uint8_t *data;
+    size_t data_size;
+    while(!feof(infile)){
+        
+        data_size = fread(buffer, 1, INBUF_SIZE, infile);
+        if(data_size == 0){
+            break;
+        }
+        
+        data = buffer;
+        while(data_size > 0){
+            size_t bytes_consumed = av_parser_parse2(parser, context, &packet->data, &packet->size, data, data_size, AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+            
+            data += bytes_consumed;
+            data_size -= bytes_consumed;
+            
+            
+
+        }
+
+    }
+
+    std::cout << "ending decode\n";
+
+    if(fclose(infile) != 0){
+        std::cout << "Could not close " << input_filename;
+        return EXIT_FAILURE;                
+    }
+
+    if(fclose(outfile) != 0){
+        std::cout << "Could not close " << output_filename;
+        return EXIT_FAILURE;                
+    }
+    
+
+    return 0;
+    
+
+}
+*/
