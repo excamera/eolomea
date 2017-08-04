@@ -86,7 +86,6 @@ const size_t frame_size = width*height*bytes_per_pixel;
 
 const size_t bitrate = (2<<20);
 
-static H264_degrader *degrader = NULL;
 static uint8_t *yuv_input[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
 static uint8_t *yuv_output[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
 
@@ -159,8 +158,7 @@ Playback::Playback(int m_deckLinkIndex,
 		   const char* m_videoInputFile,
 		   std::list<uint8_t*> &output,
 		   std::mutex &output_mutex,
-		   int framesDelay,
-		   int stddev) :
+		   int framesDelay) :
   
     m_refCount(1),
     m_running(false),
@@ -182,12 +180,10 @@ Playback::Playback(int m_deckLinkIndex,
     m_videoInputFile(m_videoInputFile),
     output(output),
     output_mutex(output_mutex),
-    gen(std::random_device{}()),
     m_logfile(),
     scheduled_timestamp_cpu(),
     scheduled_timestamp_decklink(),
-    framesDelay(framesDelay),
-    dist(0, stddev)
+    framesDelay(framesDelay)
 {
     degrader = new H264_degrader(width, height, bitrate);
 }

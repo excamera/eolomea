@@ -49,7 +49,7 @@ public:
     BMDPixelFormat          m_pixelFormat;
 
     int                     m_framesDelay;
-    int                     m_stddev;
+    int                     m_bitrate;
 
     const char*             m_videoOutputFile;
     const char*             m_logFilename;

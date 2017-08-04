@@ -1,7 +1,12 @@
+#ifndef __H264_DEGRADER_HH__
+#define __H264_DEGRADER_HH__
+
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavutil/frame.h"
 }
+
+#include <mutex>
 
 class H264_degrader{
 public:    
@@ -14,6 +19,8 @@ public:
     void degrade(uint8_t **input, uint8_t **output);
 
 private:
+    std::mutex degrader_mutex;
+
     const AVCodecID codec_id = AV_CODEC_ID_H264;
     const AVPixelFormat pix_fmt = AV_PIX_FMT_YUV422P;
 
@@ -38,3 +45,4 @@ private:
     AVFrame *decoder_frame;
 };
 
+#endif

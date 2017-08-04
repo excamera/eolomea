@@ -54,6 +54,7 @@ extern "C"{
 #include "chunk.hh"
 
 #include "Playback.hh"
+#include "h264_degrader.hh"
 
 using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
@@ -85,6 +86,13 @@ static int64_t  g_frameCount = 0;
 //static uint64_t g_validFrameCount = 0;
 std::list<uint8_t*>     output;
 std::mutex              output_mutex;
+
+const size_t width = 1280;
+const size_t height = 720;
+const size_t bytes_per_pixel = 4;
+const size_t frame_size = width*height*bytes_per_pixel;
+
+H264_degrader *degrade1 = NULL, *degrade2 = NULL;
 
 DeckLinkCaptureDelegate::DeckLinkCaptureDelegate(int framesDelay) :
   framesDelay(framesDelay),
@@ -448,8 +456,10 @@ int main(int argc, char *argv[])
     }
     }*/
 
-  my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_stddev);
+  my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay);
 
+  degrade1 = new H264_degrader(width, height, g_config.m_bitrate*1000);
+  my_playback->degrader = degrade1;
   t = std::move( std::thread([&](){my_playback->Run();}) );
 
   // Block main thread until signal occurs
@@ -475,9 +485,17 @@ int main(int argc, char *argv[])
 	case 'd':
 	  delegate->framesDelay = value;
 	  break;
-	case 'n':
-	  my_playback->dist = std::normal_distribution<float> (0, value);
-	}	
+	case 'b':
+	  degrade2 = new H264_degrader(width, height, value*1000);
+	  std::cout << "made degrade2\n";
+	  my_playback->degrader = degrade2;
+	  std::cout << "copied to playback\n";
+	  delete degrade1;
+	  std::cout << "deleted degrade2\1\n";
+	  degrade1 = degrade2;
+	  std::cout << "copied degrade2\n";
+	  break;
+	}
     }
 
   // All Okay.

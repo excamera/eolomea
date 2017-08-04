@@ -2,6 +2,7 @@
 #include <memory>
 #include <cstring>
 #include <vector>
+#include <mutex>
 
 #include "h264_degrader.hh"
 
@@ -214,6 +215,8 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate) :
 }
 
 H264_degrader::~H264_degrader(){
+    std::lock_guard<std::mutex> guard(degrader_mutex);
+
     av_parser_close(decoder_parser);
 
     avcodec_free_context(&decoder_context);
@@ -227,6 +230,8 @@ H264_degrader::~H264_degrader(){
 }
 
 void H264_degrader::degrade(uint8_t **input, uint8_t **output){
+
+    std::lock_guard<std::mutex> guard(degrader_mutex);
     
     bool output_set = false;
 

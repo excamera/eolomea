@@ -36,6 +36,8 @@
 #include <mutex>
 #include <random>
 
+#include "h264_degrader.hh"
+
 using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
 using std::chrono::time_point_cast;
@@ -66,8 +68,7 @@ private:
     const char* m_videoInputFile;
 
     std::list<uint8_t*>             &output;
-    std::mutex                      &output_mutex;    
-    std::mt19937                    gen;
+    std::mutex                      &output_mutex;
 
     std::ofstream           m_logfile;
   //File                    m_infile;
@@ -87,7 +88,7 @@ private:
 
 public:
     int framesDelay; 
-    std::normal_distribution<float> dist;
+    H264_degrader *degrader = NULL;
 
     Playback(int m_deckLinkIndex,
 	     int m_displayModeIndex,
@@ -96,8 +97,7 @@ public:
 	     const char* m_videoInputFile,
 	     std::list<uint8_t*> &output,
 	     std::mutex &output_mutex,
-	     int framesDelay,
-	     int stddev);
+	     int framesDelay);
 
     bool Run();
 
