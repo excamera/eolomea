@@ -26,7 +26,7 @@
 */
 
 #include <atomic>
-
+#include <chrono>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -79,12 +79,12 @@ const uint64_t prefetch_block_size = 1 << 28; // 0.0125 GB
 const unsigned long     kAudioWaterlevel = 48000;
 // std::ofstream debugf;
 
-const size_t width = 1920;
-const size_t height = 1080;
+const size_t width = 1280;
+const size_t height = 720;
 const size_t bytes_per_pixel = 4;
 const size_t frame_size = width*height*bytes_per_pixel;
 
-const size_t bitrate = (10<<20);
+const size_t bitrate = (2<<20);
 
 static H264_degrader *degrader = NULL;
 static uint8_t *yuv_input[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
@@ -448,10 +448,18 @@ void Playback::ScheduleNextFrame(bool prerolling)
 	    }
       */
 	  output.pop_front();
+      
+      auto degrade_t1 = std::chrono::high_resolution_clock::now();
       H264_degrader::bgra2yuv422p((uint8_t*)pulledFrame, yuv_input, width, height);
+
       degrader->degrade(yuv_input, yuv_output);
       H264_degrader::yuv422p2bgra(yuv_output, (uint8_t*)pulledFrame, width, height);
-	  std::memcpy(frameBytes, pulledFrame, 1920*1080*4);
+	  std::memcpy(frameBytes, pulledFrame, width*height*4);
+
+      auto degrade_t2 = std::chrono::high_resolution_clock::now();
+      auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
+      std::cout << "degrade_time " << degrade_time.count() << "\n";
+
 	}
 	else std::cout << "size: " << output.size() << '\n';
       }

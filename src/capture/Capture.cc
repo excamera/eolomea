@@ -448,51 +448,10 @@ int main(int argc, char *argv[])
     }
     }*/
 
-  my_playback = new Playback(0, 11, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_stddev);
+  my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_stddev);
 
   t = std::move( std::thread([&](){my_playback->Run();}) );
 
-  //LIBAV ADDITION
-  avcodec_register_all();
-  /* find the mpeg1video encoder */
-  codec = avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO);
-  if (!codec) {
-    fprintf(stderr, "codec not found\n");
-    exit(1);
-  }
-
-  c = avcodec_alloc_context3(codec);
-  pic = av_frame_alloc();
-  pkt = av_packet_alloc();
-  if (!pkt)
-    exit(1);
-
-  /* put sample parameters */
-  c->bit_rate = 400000;
-  /* resolution must be a multiple of two */
-  c->width = 352;
-  c->height = 288;
-  /* frames per second */
-  c->time_base = (AVRational){1, 25};
-  c->framerate = (AVRational){25, 1};
-  c->gop_size = 10; /* emit one intra frame every ten frames */
-  c->max_b_frames=1;
-  c->pix_fmt = AV_PIX_FMT_YUV420P;
-
-  /* open it */
-  if (avcodec_open2(c, codec, NULL) < 0) {
-    fprintf(stderr, "could not open codec\n");
-    exit(1);
-  }
-  pic->format = c->pix_fmt;
-  pic->width  = c->width;
-  pic->height = c->height;
-  ret = av_frame_get_buffer(pic, 32);
-  if (ret < 0) {
-    fprintf(stderr, "could not alloc the frame data\n");
-    exit(1);
-  }
-    
   // Block main thread until signal occurs
   // Start capturing
   result = g_deckLinkInput->EnableVideoInput(displayMode->GetDisplayMode(), g_config.m_pixelFormat, g_config.m_inputFlags);
