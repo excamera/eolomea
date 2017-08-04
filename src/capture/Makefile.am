@@ -3,7 +3,7 @@ AM_CXXFLAGS = $(PICKY_CXXFLAGS)
 
 bin_PROGRAMS = capture hw
 
-capture_SOURCES = Capture.cc Capture.hh Config.hh Config.cc Playback.cc Playback.hh
+capture_SOURCES = Capture.cc Capture.hh Config.hh Config.cc Playback.cc Playback.hh h264_degrader.cc
 capture_LDADD = ../../third_party/decklink/libdecklink.a -ldl -lm ../display/libdisplay.a ../util/libutil.a $(XCBPRESENT_LIBS) $(XCB_LIBS) $(PANGOCAIRO_LIBS) $(AVFORMAT_LIBS) $(AVCODEC_LIBS) $(AVUTIL_LIBS) $(AVFILTER_LIBS) $(AVDEVICE_LIBS)
 capture_LDFLAGS = -pthread
 

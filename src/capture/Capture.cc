@@ -63,15 +63,10 @@ using std::chrono::microseconds;
 std::queue<IDeckLinkVideoInputFrame*> frame_queue;
 std::mutex frame_queue_lock;
 
-
-
 const AVCodec *codec;
 AVCodecContext *c = NULL;
 AVFrame *pic;
 AVPacket *pkt;
-
-
-
 
 const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
 static BMDTimeScale prev_frame_recieved_time = (BMDTimeScale)0;
@@ -174,38 +169,8 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
 	  {
 	    std::lock_guard<std::mutex> lg(output_mutex);		  
 	    if(output.size() <= (unsigned) framesDelay){
-	      
-	      //encode
-	      int ret = avcodec_send_frame(c, pic);
-	      if (ret < 0) {
-		fprintf(stderr, "error sending a frame for encoding\n");
-		exit(1);
-	      }
-	      ret = avcodec_receive_packet(c, pkt);
-	      if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-		return ret;
-	      else if (ret < 0) {
-		fprintf(stderr, "error during encoding\n");
-		exit(1);
-	      }
-	      
-	      //decode
-	      ret = avcodec_send_packet(c, pkt);
-	      if (ret < 0) {
-		fprintf(stderr, "Error sending a packet for decoding\n");
-		exit(1);
-	      }
-	      ret = avcodec_receive_frame(c, pic);
-	      if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-		return ret;
-	      else if (ret < 0) {
-		fprintf(stderr, "Error during decoding\n");
-		exit(1);
-	      }
-	      
-
-	      
-	      output.push_back((uint8_t*)frameBytes);
+            
+            output.push_back((uint8_t*)frameBytes);
 	    }
 	    else{
 	      std::cout << "full!\n"; 
@@ -487,17 +452,6 @@ int main(int argc, char *argv[])
 
   t = std::move( std::thread([&](){my_playback->Run();}) );
 
-  // Block main thread until signal occurs
-  // Start capturing
-  result = g_deckLinkInput->EnableVideoInput(displayMode->GetDisplayMode(), g_config.m_pixelFormat, g_config.m_inputFlags);
-  if (result != S_OK)
-    {
-      fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
-      goto bail;
-    }
-
-  
-
   //LIBAV ADDITION
   avcodec_register_all();
   /* find the mpeg1video encoder */
@@ -539,6 +493,15 @@ int main(int argc, char *argv[])
     exit(1);
   }
     
+  // Block main thread until signal occurs
+  // Start capturing
+  result = g_deckLinkInput->EnableVideoInput(displayMode->GetDisplayMode(), g_config.m_pixelFormat, g_config.m_inputFlags);
+  if (result != S_OK)
+    {
+      fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
+      goto bail;
+    }
+
   result = g_deckLinkInput->StartStreams();
   if (result != S_OK)
     goto bail;

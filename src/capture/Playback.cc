@@ -57,6 +57,8 @@
 #include "child_process.hh"
 #include "system_runner.hh"
 
+#include "h264_degrader.hh"
+
 using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
 using std::chrono::time_point_cast;
@@ -76,6 +78,17 @@ const uint64_t prefetch_block_size = 1 << 28; // 0.0125 GB
 
 const unsigned long     kAudioWaterlevel = 48000;
 // std::ofstream debugf;
+
+const size_t width = 1920;
+const size_t height = 1080;
+const size_t bytes_per_pixel = 4;
+const size_t frame_size = width*height*bytes_per_pixel;
+
+const size_t bitrate = (10<<20);
+
+static H264_degrader *degrader = NULL;
+static uint8_t *yuv_input[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
+static uint8_t *yuv_output[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
 
 void sigfunc(int signum)
 {
@@ -175,7 +188,9 @@ Playback::Playback(int m_deckLinkIndex,
     scheduled_timestamp_decklink(),
     framesDelay(framesDelay),
     dist(0, stddev)
-{}
+{
+    degrader = new H264_degrader(width, height, bitrate);
+}
 
 bool Playback::Run()
 {
@@ -422,14 +437,20 @@ void Playback::ScheduleNextFrame(bool prerolling)
       {
 	std::lock_guard<std::mutex> guard(output_mutex);	
 	//if (!output.empty()) {
-        if (output.size() >= (unsigned) framesDelay) {
+      if (output.size() >= (unsigned) framesDelay) {
 	  uint8_t* pulledFrame = output.front();
-	  /*for (size_t i = 0; i < 1920*1080*4; ++i) {
-	    if (i % 4 != 3) {
-	      pulledFrame[i] += (uint8_t) dist(gen);
+
+	  /*
+        for (size_t i = 0; i < 1920*1080*4; ++i) {
+	      if (i % 4 != 3) {
+            pulledFrame[i] += (uint8_t) dist(gen);
+	      }
 	    }
-	    }*/
+      */
 	  output.pop_front();
+      H264_degrader::bgra2yuv422p((uint8_t*)pulledFrame, yuv_input, width, height);
+      degrader->degrade(yuv_input, yuv_output);
+      H264_degrader::yuv422p2bgra(yuv_output, (uint8_t*)pulledFrame, width, height);
 	  std::memcpy(frameBytes, pulledFrame, 1920*1080*4);
 	}
 	else std::cout << "size: " << output.size() << '\n';
