@@ -5,6 +5,8 @@
 
 #include "h264_degrader.hh"
 
+#define PIX(x) (x < 0 ? 0 : (x > 255 ? 255 : x))
+
 extern "C" {
 //#include <stdio.h>
 //#include <stdlib.h>
@@ -17,9 +19,77 @@ extern "C" {
 #include "libavutil/mathematics.h"
 }
 
-H264_degrader::H264_degrader(size_t _width, size_t _height) :
+void H264_degrader::bgra2yuv422p(uint8_t* input, uint8_t** output, size_t width, size_t height){
+    // https://www.fourcc.org/fccyvrgb.php
+
+    // Y-plane
+    for(size_t y = 0; y < height; y++){
+        for(size_t x = 0; x < width; x++){
+            size_t offset = 4*(y*width + x);
+            uint16_t b = input[offset + 0];
+            uint16_t g = input[offset + 1];
+            uint16_t r = input[offset + 2];
+
+            uint16_t Y = 0.098*b + 0.504*g + 0.257*r + 16;
+            output[0][y*width + x] = PIX(Y);
+        }
+    }
+
+    // U and Y planes
+    for(size_t y = 0; y < height; y++){
+        for(size_t x = 0; x < width; x+=2){
+            size_t offset = 4*(y*width + x);
+            int16_t b1 = input[offset + 0];
+            int16_t g1 = input[offset + 1];
+            int16_t r1 = input[offset + 2];
+
+            int16_t b2 = input[offset + 4];
+            int16_t g2 = input[offset + 5];
+            int16_t r2 = input[offset + 6];
+
+            int16_t cb1 = 0.439*b1 - 0.291*g1 - 0.148*r1 + 128;
+            int16_t cb2 = 0.439*b2 - 0.291*g2 - 0.148*r2 + 128;
+            int16_t cb = (cb1 + cb2) / 2;
+            output[1][y*width/2 + x/2] = PIX(cb); 
+
+            int16_t cr1 = -0.071*b1 - 0.368*g1 + .439*r1 + 128;
+            int16_t cr2 = -0.071*b2 - 0.368*g2 + .439*r2 + 128;
+            int16_t cr = (cr1 + cr2) / 2;
+            output[2][y*width/2 + x/2] = PIX(cr);
+        }
+    }
+}
+
+void H264_degrader::yuv422p2bgra(uint8_t** input, uint8_t* output, size_t width, size_t height){
+    // https://www.fourcc.org/fccyvrgb.php
+
+    // BGRA-packed
+    for(size_t y = 0; y < height; y++){
+        for(size_t x = 0; x < width; x++){
+            size_t offset = 4*(y*width + x);
+
+            int16_t Y = input[0][y*width + x];
+            int16_t u = input[1][y*width/2 + x/2];
+            int16_t v = input[2][y*width/2 + x/2];
+            
+            int16_t b = 1.164*(Y-16) + 2.018*(u-128);
+            output[offset] = PIX(b);
+
+            int16_t g = 1.164*(Y-16) - 0.391*(u-128) - 0.813*(v-128);
+            output[offset + 1] = PIX(g);
+
+            int16_t r = 1.164*(Y-16) + 1.596*(v-128);
+            output[offset + 2] = PIX(r);
+
+            output[offset + 3] = 255;
+        }
+    }
+}
+
+H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate) :
     width(_width),
     height(_height),
+    bitrate(_bitrate),
     frame_count(0)
 {
 
@@ -36,10 +106,6 @@ H264_degrader::H264_degrader(size_t _width, size_t _height) :
         std::cout << "decoder_codec: " << codec_id << " not found!" << "\n";
         throw;
     }
-
-    // if((decoder_codec->capabilities)&CODEC_CAP_TRUNCATED){
-    //     (decoder_context->flags) |= CODEC_FLAG_TRUNCATED;
-    // }
 
     encoder_context = avcodec_alloc_context3(encoder_codec);
     if(encoder_context == NULL){
@@ -58,8 +124,8 @@ H264_degrader::H264_degrader(size_t _width, size_t _height) :
     encoder_context->width = width;
     encoder_context->height = height;
 
-    encoder_context->bit_rate = 4000;
-    encoder_context->bit_rate_tolerance = 4000;
+    encoder_context->bit_rate = bitrate;
+    encoder_context->bit_rate_tolerance = 0;
 
     encoder_context->time_base = (AVRational){1, 20};
     encoder_context->framerate = (AVRational){60, 1};
@@ -67,7 +133,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height) :
     encoder_context->max_b_frames = 0;
     encoder_context->qmin = 0;
     encoder_context->qmax = 64;
-    encoder_context->qcompress = 0.2;
+    encoder_context->qcompress = 0.5;
     av_opt_set(encoder_context->priv_data, "tune", "zerolatency", 0); // forces no frame buffer delay (https://stackoverflow.com/questions/10155099/c-ffmpeg-h264-creating-zero-delay-stream)
 
     // decoder context parameter
@@ -134,10 +200,6 @@ H264_degrader::H264_degrader(size_t _width, size_t _height) :
         throw;
     }
 
-    // for(size_t i = 0; i < 8; i++){
-    //     std::cout << frame->linesize[i] << "\n";
-    // }
-
     encoder_packet = av_packet_alloc();
     if(encoder_packet == NULL) {
         std::cout << "AVPacket not allocated: encoder" << "\n";
@@ -152,21 +214,29 @@ H264_degrader::H264_degrader(size_t _width, size_t _height) :
 }
 
 H264_degrader::~H264_degrader(){
-    // TODO
+    av_parser_close(decoder_parser);
+
+    avcodec_free_context(&decoder_context);
+    avcodec_free_context(&encoder_context);
+
+    av_frame_free(&decoder_frame);
+    av_frame_free(&encoder_frame);
+
+    av_packet_free(&decoder_packet);
+    av_packet_free(&encoder_packet);
 }
 
 void H264_degrader::degrade(uint8_t **input, uint8_t **output){
     
-    //std::memset(output[0], 255, width*height);
-    //std::memset(output[1], 128, width*height/2);
-    //std::memset(output[2], 128, width*height/2);
+    bool output_set = false;
 
     if(av_frame_make_writable(encoder_frame) < 0){
         std::cout << "Could not make the frame writable" << "\n";
         throw;
     }
 
-    // copy frame into buffer
+    // copy frame into buffer 
+    // TODO(jremons) make faster
     for(size_t y = 0; y < height; y++){
         for(size_t x = 0; x < width; x++){
             encoder_frame->data[0][y*encoder_frame->linesize[0] + x] = input[0][y*width + x];
@@ -205,6 +275,7 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output){
             throw;
         }
 
+        // TODO(jremmons) memory allocation is slow
         buffer = std::move(std::shared_ptr<uint8_t>(new uint8_t[encoder_packet->size + AV_INPUT_BUFFER_PADDING_SIZE]));
         buffer_size = encoder_packet->size;
         std::memcpy(buffer.get(), encoder_packet->data, encoder_packet->size);
@@ -229,7 +300,7 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output){
                                        data_size,
                                        AV_NOPTS_VALUE, 
                                        AV_NOPTS_VALUE, 
-                                       frame_count);
+                                       0);
         
         if(ret1 < 0){
             std::cout << "error while parsing the buffer: decoding" << "\n";
@@ -255,6 +326,7 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output){
             }
             
             // copy output in output_buffer
+            // TODO(jremmons) make faster
             for(size_t y = 0; y < height; y++){
                 for(size_t x = 0; x < width; x++){
                     output[0][y*width + x] = decoder_frame->data[0][y*decoder_frame->linesize[0] + x];
@@ -266,9 +338,17 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output){
                     output[2][y*width + x] = decoder_frame->data[2][y*decoder_frame->linesize[2] + x];
                 }
             }
+            output_set = true;
         }
     }
     av_packet_unref(decoder_packet);
+
+    if(!output_set){
+        // make white if output not set
+        std::memset(output[0], 255, width*height);
+        std::memset(output[1], 128, width*height/2);
+        std::memset(output[2], 128, width*height/2);
+    }
 
     frame_count += 1;
 }

@@ -1,15 +1,15 @@
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavutil/frame.h"
-//#include "libavutil/imgutils.h"
-//#include "libavutil/common.h"
-//#include "libavutil/mathematics.h"
 }
 
 class H264_degrader{
 public:    
-    H264_degrader(size_t _width, size_t _height);
+    H264_degrader(size_t _width, size_t _height, size_t _bitrate);
     ~H264_degrader();
+
+    static void bgra2yuv422p(uint8_t* input, uint8_t** output, size_t width, size_t height);
+    static void yuv422p2bgra(uint8_t** input, uint8_t* output, size_t width, size_t height);
     
     void degrade(uint8_t **input, uint8_t **output);
 
@@ -19,6 +19,7 @@ private:
 
     const size_t width;
     const size_t height;
+    const size_t bitrate;
     
     size_t frame_count;
 
