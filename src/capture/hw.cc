@@ -119,7 +119,6 @@ int main(int argc, char **argv)
 
     H264_degrader degrader(width, height);
 
-    bool output_set;
     while(!infile.eof()){
         infile.read((char*)input_buffer.get(), frame_size);
         
@@ -127,13 +126,12 @@ int main(int argc, char **argv)
         bgra2yuv422p(input_buffer.get(), yuv_input, width, height);
         
         // degrade
-        degrader.degrade(yuv_input, yuv_output, output_set);
+        degrader.degrade(yuv_input, yuv_output);
  
         // convert to bgra and output
-        if(output_set){
-            yuv422p2bgra(yuv_output, output_buffer.get(), width, height);
-            outfile.write((char*)output_buffer.get(), frame_size);
-        }
+        yuv422p2bgra(yuv_output, output_buffer.get(), width, height);
+
+        outfile.write((char*)output_buffer.get(), frame_size);
     }
 
     return 0;

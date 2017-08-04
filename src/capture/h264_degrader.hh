@@ -11,7 +11,7 @@ public:
     H264_degrader(size_t _width, size_t _height);
     ~H264_degrader();
     
-    void degrade(uint8_t **input, uint8_t **output,bool &output_set);
+    void degrade(uint8_t **input, uint8_t **output);
 
 private:
     const AVCodecID codec_id = AV_CODEC_ID_H264;

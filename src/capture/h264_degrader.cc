@@ -10,6 +10,7 @@ extern "C" {
 //#include <stdlib.h>
 //#include <string.h>
 #include "libavcodec/avcodec.h"
+#include "libavutil/opt.h"
 #include "libavutil/frame.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/common.h"
@@ -58,15 +59,16 @@ H264_degrader::H264_degrader(size_t _width, size_t _height) :
     encoder_context->height = height;
 
     encoder_context->bit_rate = 4000;
-    encoder_context->bit_rate_tolerance = 0;
+    encoder_context->bit_rate_tolerance = 4000;
 
-    encoder_context->time_base = (AVRational){1, 50};
-    encoder_context->framerate = (AVRational){25, 1};
-    encoder_context->gop_size = 10;
-    encoder_context->max_b_frames = 1;
+    encoder_context->time_base = (AVRational){1, 20};
+    encoder_context->framerate = (AVRational){60, 1};
+    encoder_context->gop_size = 0;
+    encoder_context->max_b_frames = 0;
     encoder_context->qmin = 0;
     encoder_context->qmax = 64;
-    encoder_context->qcompress = 0.5;
+    encoder_context->qcompress = 0.2;
+    av_opt_set(encoder_context->priv_data, "tune", "zerolatency", 0); // forces no frame buffer delay (https://stackoverflow.com/questions/10155099/c-ffmpeg-h264-creating-zero-delay-stream)
 
     // decoder context parameter
     decoder_context->pix_fmt = pix_fmt;
@@ -153,12 +155,11 @@ H264_degrader::~H264_degrader(){
     // TODO
 }
 
-void H264_degrader::degrade(uint8_t **input, uint8_t **output, bool &output_set){
+void H264_degrader::degrade(uint8_t **input, uint8_t **output){
     
-    std::memset(output[0], 255, width*height);
-    std::memset(output[1], 128, width*height/2);
-    std::memset(output[2], 128, width*height/2);
-    output_set = false;
+    //std::memset(output[0], 255, width*height);
+    //std::memset(output[1], 128, width*height/2);
+    //std::memset(output[2], 128, width*height/2);
 
     if(av_frame_make_writable(encoder_frame) < 0){
         std::cout << "Could not make the frame writable" << "\n";
@@ -191,7 +192,12 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output, bool &output_set)
     int count = 0;
     while (ret >= 0) {
         ret = avcodec_receive_packet(encoder_context, encoder_packet);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF){
+
+        if (ret == AVERROR(EAGAIN)){
+            break;
+            std::cout << "did I make it here?\n";
+        }
+        else if(ret == AVERROR_EOF){
             break;
         }
         else if (ret < 0) {
@@ -260,7 +266,6 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output, bool &output_set)
                     output[2][y*width + x] = decoder_frame->data[2][y*decoder_frame->linesize[2] + x];
                 }
             }
-            output_set = true;
         }
     }
     av_packet_unref(decoder_packet);
