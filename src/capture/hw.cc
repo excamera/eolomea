@@ -8,6 +8,7 @@
 #define PIX(x) (x < 0 ? 0 : (x > 255 ? 255 : x))
 
 void bgra2yuv422p(uint8_t* input, uint8_t** output, size_t width, size_t height){
+    // https://www.fourcc.org/fccyvrgb.php
 
     // Y-plane
     for(size_t y = 0; y < height; y++){
@@ -48,6 +49,7 @@ void bgra2yuv422p(uint8_t* input, uint8_t** output, size_t width, size_t height)
 }
 
 void yuv422p2bgra(uint8_t** input, uint8_t* output, size_t width, size_t height){
+    // https://www.fourcc.org/fccyvrgb.php
 
     // BGRA-packed
     for(size_t y = 0; y < height; y++){

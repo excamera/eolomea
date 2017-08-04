@@ -19,6 +19,8 @@ private:
 
     const size_t width;
     const size_t height;
+    
+    size_t frame_count;
 
     AVCodec *encoder_codec;
     AVCodec *decoder_codec;
