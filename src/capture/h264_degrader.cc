@@ -82,6 +82,10 @@ H264_degrader::H264_degrader(size_t _width, size_t _height) :
         throw;
     }
 
+    for(int i = 0; i < 8; i++){
+        std::cout << (uint64_t)frame->linesize[i] << "\n";
+    }
+    
     packet = av_packet_alloc();
     if(packet == NULL) {
         std::cout << "AVPacket not allocated" << "\n";
@@ -94,8 +98,10 @@ H264_degrader::~H264_degrader(){
     // TODO
 }
 
-void H264_degrader::degrade(const uint8_t* input, uint8_t* output){
-    //std::memcpy(output, input, width*height*4);
+void H264_degrader::degrade(uint8_t **input, uint8_t **output){
+    std::memcpy(output[0], input[0], width*height);
+    std::memcpy(output[1], input[1], width*height/2);
+    std::memcpy(output[2], input[2], width*height/2);
 
     if(av_frame_make_writable(frame) < 0){
         std::cout << "Could not make the frame writable" << "\n";
@@ -103,6 +109,7 @@ void H264_degrader::degrade(const uint8_t* input, uint8_t* output){
     }
     
     // TODO put pixels into frame
+    return;
 
     int ret = avcodec_send_frame(encoder_context, frame);
     if (ret < 0) {
