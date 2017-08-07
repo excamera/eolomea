@@ -35,7 +35,9 @@
 #include <chrono>
 #include <mutex>
 #include <random>
-
+#include <queue>
+#include <utility>
+#include <thread>
 #include "h264_degrader.hh"
 
 using std::chrono::time_point;
@@ -70,8 +72,14 @@ private:
     std::list<uint8_t*>             &output;
     std::mutex                      &output_mutex;
 
+    std::queue<std::pair<uint8_t*, uint8_t*> > record;
+    std::thread t;
+
     std::ofstream           m_logfile;
   //File                    m_infile;
+
+    int beforeFile;
+    int afterFile;
     
     std::list<time_point<high_resolution_clock>> scheduled_timestamp_cpu;
     std::list<BMDTimeValue> scheduled_timestamp_decklink;
@@ -86,6 +94,8 @@ private:
     const char*     GetPixelFormatName(BMDPixelFormat pixelFormat);
     void            PrintStatusLine(uint32_t queued);
 
+    void WriteToDisk();
+
 public:
     int framesDelay; 
     H264_degrader *degrader = NULL;
@@ -97,7 +107,9 @@ public:
 	     const char* m_videoInputFile,
 	     std::list<uint8_t*> &output,
 	     std::mutex &output_mutex,
-	     int framesDelay);
+	     int framesDelay,
+	     char* beforeFilename,
+	     char* afterFilename);
 
     bool Run();
 

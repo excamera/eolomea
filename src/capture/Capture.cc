@@ -322,6 +322,10 @@ int main(int argc, char *argv[])
 
   int ret;
 
+
+  char *before = "beforeFile.txt", *after = "afterFile.txt";
+
+
   pthread_mutex_init(&g_sleepMutex, NULL);
   pthread_cond_init(&g_sleepCond, NULL);
 
@@ -456,7 +460,7 @@ int main(int argc, char *argv[])
     }
     }*/
 
-  my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay);
+  my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, before, after);
 
   degrade1 = new H264_degrader(width, height, g_config.m_bitrate*1000);
   my_playback->degrader = degrade1;

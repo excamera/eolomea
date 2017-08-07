@@ -48,6 +48,8 @@
 #include <cassert>
 #include <list>
 #include <mutex>
+#include <queue>
+#include <utility>
 #include <random>
 #include <memory>
 #include "Playback.hh"
@@ -149,6 +151,10 @@ int main(int argc, char *argv[])
 
 Playback::~Playback()
 {
+  delete degrader;
+  close(beforeFile);
+  close(afterFile);
+  t.join();
 }
 
 Playback::Playback(int m_deckLinkIndex,
@@ -158,7 +164,9 @@ Playback::Playback(int m_deckLinkIndex,
 		   const char* m_videoInputFile,
 		   std::list<uint8_t*> &output,
 		   std::mutex &output_mutex,
-		   int framesDelay) :
+		   int framesDelay,
+		   char* beforeFilename,
+		   char* afterFilename) :
   
     m_refCount(1),
     m_running(false),
@@ -180,12 +188,47 @@ Playback::Playback(int m_deckLinkIndex,
     m_videoInputFile(m_videoInputFile),
     output(output),
     output_mutex(output_mutex),
+    record(),
+    t(&Playback::WriteToDisk, this),
     m_logfile(),
     scheduled_timestamp_cpu(),
     scheduled_timestamp_decklink(),
     framesDelay(framesDelay)
 {
     degrader = new H264_degrader(width, height, bitrate);
+    beforeFile = open(beforeFilename, O_WRONLY|O_CREAT|O_TRUNC, 0664);
+    if (beforeFile < 0) {
+      std::cout << "Could not open file: " << beforeFilename << "\n";
+      exit(1);
+    }
+
+    afterFile = open(afterFilename, O_WRONLY|O_CREAT|O_TRUNC, 0664);
+    if (afterFile < 0) {
+      std::cout << "Could not open file: " << afterFilename << "\n";
+      exit(1);
+    }
+}
+
+void Playback::WriteToDisk()
+{
+  while(true) {
+    if (record.size() != 0) {
+      uint8_t *beforeFrame = record.front().first;
+      uint8_t *afterFrame = record.front().second;
+      record.pop();
+      size_t ret = write(beforeFile, beforeFrame, frame_size);
+      if (ret < 0) {
+	std::cout << "Cannot write to first file\n";
+      }
+      ret = write(afterFile, afterFrame, frame_size);
+      if (ret < 0) {
+	std::cout << "Cannot write to second file\n";
+      }
+    }
+    else {
+      usleep(100);
+    }
+  }
 }
 
 bool Playback::Run()
@@ -427,48 +470,39 @@ void Playback::ScheduleNextFrame(bool prerolling)
 
     newFrame->GetBytes(&frameBytes);
 
-    const unsigned int frame_size = 4 * m_frameWidth * m_frameHeight;
-
     if (true) {
       {
 	std::lock_guard<std::mutex> guard(output_mutex);	
 	//if (!output.empty()) {
-      if (output.size() >= (unsigned) framesDelay) {
+	if (output.size() >= (unsigned) framesDelay) {
 	  uint8_t* pulledFrame = output.front();
-
-	  /*
-        for (size_t i = 0; i < 1920*1080*4; ++i) {
-	      if (i % 4 != 3) {
-            pulledFrame[i] += (uint8_t) dist(gen);
-	      }
-	    }
-      */
+	  uint8_t* degradedFrame = new uint8_t[frame_size];
 	  output.pop_front();
-      
-      auto degrade_t1 = std::chrono::high_resolution_clock::now();
-      H264_degrader::bgra2yuv422p((uint8_t*)pulledFrame, yuv_input, width, height);
+	  auto degrade_t1 = std::chrono::high_resolution_clock::now();
+	  H264_degrader::bgra2yuv422p((uint8_t*)pulledFrame, yuv_input, width, height);
+	  
+	  degrader->degrade(yuv_input, yuv_output);
+	  H264_degrader::yuv422p2bgra(yuv_output, (uint8_t*)degradedFrame, width, height);
+	  std::memcpy(frameBytes, degradedFrame, frame_size);
+	  
+	  record.push(std::pair<uint8_t*, uint8_t*> (pulledFrame, degradedFrame));
 
-      degrader->degrade(yuv_input, yuv_output);
-      H264_degrader::yuv422p2bgra(yuv_output, (uint8_t*)pulledFrame, width, height);
-	  std::memcpy(frameBytes, pulledFrame, width*height*4);
-
-      auto degrade_t2 = std::chrono::high_resolution_clock::now();
-      auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
-      std::cout << "degrade_time " << degrade_time.count() << "\n";
-
-	}
-	else std::cout << "size: " << output.size() << '\n';
+	  auto degrade_t2 = std::chrono::high_resolution_clock::now();
+	  auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
+	  std::cout << "degrade_time " << degrade_time.count() << "\n";
+	  
       }
-
-
-    memory_frontier += frame_size;
-
-    const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
-    if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK){
-      return;
     }
-
-        /* IMPORTANT: get the scheduled frame timestamps */
+      
+      
+      memory_frontier += frame_size;
+      
+      const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
+      if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK){
+	return;
+      }
+      
+      /* IMPORTANT: get the scheduled frame timestamps */
         //time_point<high_resolution_clock> tp = high_resolution_clock::now();
 
         BMDTimeValue decklink_hardware_timestamp;

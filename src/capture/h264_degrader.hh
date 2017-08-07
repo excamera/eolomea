@@ -1,5 +1,6 @@
-#ifndef __H264_DEGRADER_HH__
-#define __H264_DEGRADER_HH__
+#pragma once
+//#ifndef __H264_DEGRADER_HH__
+//#define __H264_DEGRADER_HH__
 
 extern "C" {
 #include "libavcodec/avcodec.h"
@@ -45,4 +46,4 @@ private:
     AVFrame *decoder_frame;
 };
 
-#endif
+//#endif
