@@ -51,6 +51,7 @@ public:
     int                     m_framesDelay;
     int                     m_bitrate;
     int                     m_framerate;
+    int                     m_quantization;
 
     const char*             m_videoOutputFile;
     const char*             m_logFilename;

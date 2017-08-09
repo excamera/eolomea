@@ -51,7 +51,7 @@ int main(int argc, char **argv)
     uint8_t *yuv_input[] = {y_buffer1.get(), u_buffer1.get(), v_buffer1.get()};
     uint8_t *yuv_output[] = {y_buffer2.get(), u_buffer2.get(), v_buffer2.get()};
 
-    H264_degrader degrader(width, height, (1<<20));
+    H264_degrader degrader(width, height, (1<<20), 32);
 
     while(!infile.eof()){
         infile.read((char*)input_buffer.get(), frame_size);

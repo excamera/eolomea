@@ -39,11 +39,12 @@ void H264_degrader::yuv422p2bgra(AVFrame* inputFrame, uint8_t* output, size_t wi
   sws_scale(yuv422p2bgra_context, inData, inLinesize, 0, height, outputArray, outLinesize);
 }
 
-H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate) :
+H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, size_t quantization) :
     width(_width),
     height(_height),
     bitrate(_bitrate),
-    frame_count(0)
+    frame_count(0),
+    quantization(quantization)
 {
 
     avcodec_register_all();
@@ -84,8 +85,8 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate) :
     encoder_context->framerate = (AVRational){60, 1};
     encoder_context->gop_size = 0;
     encoder_context->max_b_frames = 0;
-    encoder_context->qmin = 0;
-    encoder_context->qmax = 64;
+    encoder_context->qmin = quantization;
+    encoder_context->qmax = quantization;
     encoder_context->qcompress = 0.5;
     av_opt_set(encoder_context->priv_data, "tune", "zerolatency", 0); // forces no frame buffer delay (https://stackoverflow.com/questions/10155099/c-ffmpeg-h264-creating-zero-delay-stream)
 
@@ -206,17 +207,14 @@ H264_degrader::~H264_degrader(){
 void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
 
     std::lock_guard<std::mutex> guard(degrader_mutex);
-    auto infunction1 = std::chrono::high_resolution_clock::now();
+
     bool output_set = false;
 
-    auto make_writable1 = std::chrono::high_resolution_clock::now();
+
     if(av_frame_make_writable(inputFrame) < 0){
         std::cout << "Could not make the frame writable" << "\n";
         throw;
     }
-    auto make_writable2 = std::chrono::high_resolution_clock::now();
-    auto make_writable_time = std::chrono::duration_cast<std::chrono::duration<double>>(make_writable2 - make_writable1);
-    std::cout << "make_writable_time " << make_writable_time.count() << "\n";
 
     // copy frame into buffer 
     // TODO(jremons) make faster
@@ -339,8 +337,5 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
     }
 
     frame_count += 1;
-    auto infunction2 = std::chrono::high_resolution_clock::now();
-    auto infunction_time = std::chrono::duration_cast<std::chrono::duration<double>>(infunction2 - infunction1);
-    std::cout << "infunction_time " << infunction_time.count() << "\n";
 }
 

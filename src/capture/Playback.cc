@@ -91,6 +91,7 @@ const size_t frame_size = width*height*bytes_per_pixel;
 const AVPixelFormat pix_fmt = AV_PIX_FMT_YUV422P;
 
 const size_t bitrate = (2<<20);
+const size_t quantization = 32;
 
 static uint8_t *previousFrame = new uint8_t[frame_size];
 
@@ -202,7 +203,8 @@ Playback::Playback(int m_deckLinkIndex,
     scheduled_timestamp_decklink(),
     framesDelay(framesDelay)
 {
-    degrader = new H264_degrader(width, height, bitrate);
+    degrader = new H264_degrader(width, height, bitrate, quantization);
+
     beforeFile = open(beforeFilename, O_WRONLY|O_CREAT|O_TRUNC, 0664);
     if (beforeFile < 0) {
       std::cout << "Could not open file: " << beforeFilename << "\n";

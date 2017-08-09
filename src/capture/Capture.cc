@@ -92,6 +92,8 @@ const size_t height = 720;
 const size_t bytes_per_pixel = 4;
 const size_t frame_size = width*height*bytes_per_pixel;
 
+int bitrate, quantization;
+
 H264_degrader *degrade1 = NULL, *degrade2 = NULL;
 
 static bool display_frame = true;
@@ -357,6 +359,8 @@ int main(int argc, char *argv[])
       g_config.DisplayUsage(exitStatus);
       goto bail;
     }
+  bitrate = g_config.m_bitrate;
+  quantization = g_config.m_quantization;
 
   // Get the DeckLink device
   deckLinkIterator = CreateDeckLinkIteratorInstance();
@@ -480,7 +484,7 @@ int main(int argc, char *argv[])
 
   my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_beforeFilename, g_config.m_afterFilename);
 
-  degrade1 = new H264_degrader(width, height, g_config.m_bitrate*1000);
+  degrade1 = new H264_degrader(width, height, g_config.m_bitrate*1000, quantization);
   my_playback->degrader = degrade1;
   t = std::move( std::thread([&](){my_playback->Run();}) );
 
@@ -508,13 +512,21 @@ int main(int argc, char *argv[])
 	  delegate->framesDelay = value;
 	  break;
 	case 'b':
-	  degrade2 = new H264_degrader(width, height, value*1000);
+	  degrade2 = new H264_degrader(width, height, value*1000, quantization);
 	  my_playback->degrader = degrade2;
 	  delete degrade1;
 	  degrade1 = degrade2;
+	  bitrate = value;
 	  break;
 	case 'f':
 	  delegate->framerate = value;
+	  break;
+	case 'q':
+	  degrade2 = new H264_degrader(width, height, bitrate, value);
+	  my_playback->degrader = degrade2;
+	  delete degrade1;
+	  degrade1 = degrade2;
+	  quantization = value;
 	  break;
 	}
     }
