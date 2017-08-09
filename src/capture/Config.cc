@@ -40,6 +40,7 @@ BMDConfig::BMDConfig() :
     m_pixelFormat(bmdFormat8BitBGRA),
     m_framesDelay(0),
     m_bitrate(1 << 20),
+    m_framerate(2),
     m_videoOutputFile(),
     m_logFilename(),
     m_deckLinkName(),
@@ -61,7 +62,7 @@ bool BMDConfig::ParseArguments(int argc,  char** argv)
     int     ch;
     bool    displayHelp = false;
 
-    while ((ch = getopt(argc, argv, "d:hv:m:n:p:l:D:b:")) != -1)
+    while ((ch = getopt(argc, argv, "d:hv:m:n:p:l:D:b:f:B:A:")) != -1)
     {
         switch (ch)
         {
@@ -106,6 +107,16 @@ bool BMDConfig::ParseArguments(int argc,  char** argv)
 	      break;
 	    case 'b':
 	      m_bitrate = atoi(optarg);
+	      break;
+  	    case 'f':
+	      m_framerate = atoi(optarg);
+	      break;
+  	    case 'B':
+	      m_beforeFilename = optarg;
+	      break;
+	    case 'A':
+	      m_afterFilename = optarg;
+	      break;
         }
     }
 

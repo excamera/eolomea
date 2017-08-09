@@ -73,6 +73,7 @@ private:
     std::mutex                      &output_mutex;
 
     std::queue<std::pair<uint8_t*, uint8_t*> > record;
+    std::mutex record_mutex;
     std::thread t;
 
     std::ofstream           m_logfile;

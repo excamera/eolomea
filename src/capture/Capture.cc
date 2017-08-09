@@ -94,11 +94,14 @@ const size_t frame_size = width*height*bytes_per_pixel;
 
 H264_degrader *degrade1 = NULL, *degrade2 = NULL;
 
-DeckLinkCaptureDelegate::DeckLinkCaptureDelegate(int framesDelay) :
+static bool display_frame = true;
+static int display_frame_count = 0;
+
+DeckLinkCaptureDelegate::DeckLinkCaptureDelegate(int framesDelay, int framerate) :
   framesDelay(framesDelay),
+  framerate(framerate),
   m_refCount(1)
-{
-}
+{}
 
 ULONG DeckLinkCaptureDelegate::AddRef(void)
 {
@@ -148,7 +151,7 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
     return ret;
   }
 
-  if( prev_frame_recieved_time == 0 ){
+  /*if( prev_frame_recieved_time == 0 ){
     prev_frame_recieved_time = decklink_frame_reference_timestamp;
   }
   else if( decklink_frame_reference_timestamp - prev_frame_recieved_time > 20000 ){
@@ -157,7 +160,7 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
   }
   else{
     prev_frame_recieved_time = decklink_frame_reference_timestamp;
-  }
+    }*/
 
   // Handle Video Frame
   if (videoFrame)
@@ -175,14 +178,33 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
 
 	  videoFrame->GetBytes(&frameBytes);
 	  {
-	    std::lock_guard<std::mutex> lg(output_mutex);		  
-	    if(output.size() <= (unsigned) framesDelay){
-            
-            output.push_back((uint8_t*)frameBytes);
-	    }
-	    else{
-	      std::cout << "full!\n"; 
-	    }
+	      std::lock_guard<std::mutex> lg(output_mutex);
+	      
+	      //first frame in bundle
+	      if (display_frame_count % framerate == 0) {
+		if(output.size() <= (unsigned) framesDelay){
+		  output.push_back((uint8_t*)frameBytes);
+		  display_frame = true;
+		}
+		else {
+		  display_frame = false;
+		}
+	      }
+	      else {
+		if (display_frame == false) {
+		  if(output.size() <= (unsigned) framesDelay){
+		    output.push_back((uint8_t*)frameBytes);
+		    display_frame = true;
+		  } 
+		}
+	      }
+
+	      ++display_frame_count;
+
+	      //reached end of bundle without outputting
+	      if (display_frame_count % framerate == 0 && display_frame == false) {
+		std::cout << "error dropped frame *capture*!\n"; 
+	      }
 	  }
 
 	  // Chunk chunk((uint8_t*)frameBytes, framesize);
@@ -322,10 +344,6 @@ int main(int argc, char *argv[])
 
   int ret;
 
-
-  char *before = "beforeFile.txt", *after = "afterFile.txt";
-
-
   pthread_mutex_init(&g_sleepMutex, NULL);
   pthread_cond_init(&g_sleepCond, NULL);
 
@@ -437,7 +455,7 @@ int main(int argc, char *argv[])
   g_config.DisplayConfiguration();
 
   // Configure the capture callback
-  delegate = new DeckLinkCaptureDelegate(g_config.m_framesDelay);
+  delegate = new DeckLinkCaptureDelegate(g_config.m_framesDelay, g_config.m_framerate);
   g_deckLinkInput->SetCallback(delegate);
 
   // Open output files
@@ -460,7 +478,7 @@ int main(int argc, char *argv[])
     }
     }*/
 
-  my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, before, after);
+  my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_beforeFilename, g_config.m_afterFilename);
 
   degrade1 = new H264_degrader(width, height, g_config.m_bitrate*1000);
   my_playback->degrader = degrade1;
@@ -491,13 +509,12 @@ int main(int argc, char *argv[])
 	  break;
 	case 'b':
 	  degrade2 = new H264_degrader(width, height, value*1000);
-	  std::cout << "made degrade2\n";
 	  my_playback->degrader = degrade2;
-	  std::cout << "copied to playback\n";
 	  delete degrade1;
-	  std::cout << "deleted degrade2\1\n";
 	  degrade1 = degrade2;
-	  std::cout << "copied degrade2\n";
+	  break;
+	case 'f':
+	  delegate->framerate = value;
 	  break;
 	}
     }

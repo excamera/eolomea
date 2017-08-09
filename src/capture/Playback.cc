@@ -81,12 +81,18 @@ const uint64_t prefetch_block_size = 1 << 28; // 0.0125 GB
 const unsigned long     kAudioWaterlevel = 48000;
 // std::ofstream debugf;
 
+BMDTimeValue prev_decklink_frame_completed_timestamp;
+BMDTimeValue prev_decklink_hardware_timestamp;
+
 const size_t width = 1280;
 const size_t height = 720;
 const size_t bytes_per_pixel = 4;
 const size_t frame_size = width*height*bytes_per_pixel;
+const AVPixelFormat pix_fmt = AV_PIX_FMT_YUV422P;
 
 const size_t bitrate = (2<<20);
+
+static uint8_t *previousFrame = new uint8_t[frame_size];
 
 static uint8_t *yuv_input[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
 static uint8_t *yuv_output[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
@@ -152,6 +158,7 @@ int main(int argc, char *argv[])
 Playback::~Playback()
 {
   delete degrader;
+  delete previousFrame;
   close(beforeFile);
   close(afterFile);
   t.join();
@@ -212,10 +219,19 @@ Playback::Playback(int m_deckLinkIndex,
 void Playback::WriteToDisk()
 {
   while(true) {
-    if (record.size() != 0) {
-      uint8_t *beforeFrame = record.front().first;
-      uint8_t *afterFrame = record.front().second;
-      record.pop();
+    int rec_size;
+    uint8_t *beforeFrame, *afterFrame;
+    {
+      std::lock_guard<std::mutex> rec_guard(record_mutex);
+      rec_size = record.size();
+    }
+    if (rec_size != 0) {
+      {
+	std::lock_guard<std::mutex> rec_guard(record_mutex);
+	beforeFrame = record.front().first;
+	afterFrame = record.front().second;
+	record.pop();
+      }
       size_t ret = write(beforeFile, beforeFrame, frame_size);
       if (ret < 0) {
 	std::cout << "Cannot write to first file\n";
@@ -470,42 +486,55 @@ void Playback::ScheduleNextFrame(bool prerolling)
 
     newFrame->GetBytes(&frameBytes);
 
-    if (true) {
+    std::lock_guard<std::mutex> guard(output_mutex);	
+    //if (!output.empty()) {
+    if (output.size() >= (unsigned) framesDelay) {
+      uint8_t* pulledFrame = output.front();
+      uint8_t* degradedFrame = new uint8_t[frame_size];
+      output.pop_front();
+      
+      auto convert_tot1 = std::chrono::high_resolution_clock::now();
+      degrader->bgra2yuv422p((uint8_t*)pulledFrame, degrader->encoder_frame, width, height);
+      auto convert_tot2 = std::chrono::high_resolution_clock::now();
+      auto convert_totime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_tot2 - convert_tot1);
+      std::cout << "convert_totime " << convert_totime.count() << "\n";
+      
+      auto degrade_t1 = std::chrono::high_resolution_clock::now();
+      degrader->degrade(degrader->encoder_frame, degrader->decoder_frame);
+      //usleep(10000);
+      auto degrade_t2 = std::chrono::high_resolution_clock::now();
+      auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
+      std::cout << "degrade_time " << degrade_time.count() << "\n";
+      
+      auto convert_fromt1 = std::chrono::high_resolution_clock::now();
+      degrader->yuv422p2bgra(degrader->decoder_frame, (uint8_t*)degradedFrame, width, height);
+      auto convert_fromt2 = std::chrono::high_resolution_clock::now();
+      auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
+      std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
+      
+      std::memcpy(frameBytes, degradedFrame, frame_size);
+      std::memcpy(previousFrame, degradedFrame, frame_size);
+      
       {
-	std::lock_guard<std::mutex> guard(output_mutex);	
-	//if (!output.empty()) {
-	if (output.size() >= (unsigned) framesDelay) {
-	  uint8_t* pulledFrame = output.front();
-	  uint8_t* degradedFrame = new uint8_t[frame_size];
-	  output.pop_front();
-	  auto degrade_t1 = std::chrono::high_resolution_clock::now();
-	  H264_degrader::bgra2yuv422p((uint8_t*)pulledFrame, yuv_input, width, height);
-	  
-	  degrader->degrade(yuv_input, yuv_output);
-	  H264_degrader::yuv422p2bgra(yuv_output, (uint8_t*)degradedFrame, width, height);
-	  std::memcpy(frameBytes, degradedFrame, frame_size);
-	  
-	  record.push(std::pair<uint8_t*, uint8_t*> (pulledFrame, degradedFrame));
-
-	  auto degrade_t2 = std::chrono::high_resolution_clock::now();
-	  auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
-	  std::cout << "degrade_time " << degrade_time.count() << "\n";
-	  
+	std::lock_guard<std::mutex> rec_guard(record_mutex);		  
+	record.push(std::pair<uint8_t*, uint8_t*> (pulledFrame, degradedFrame));
       }
     }
+    else {
+      std::memcpy(frameBytes, previousFrame, frame_size);
+      //m_running = false;
+    }      
       
-      
-      memory_frontier += frame_size;
-      
-      const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
-      if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK){
-	return;
-      }
-      
-      /* IMPORTANT: get the scheduled frame timestamps */
-        //time_point<high_resolution_clock> tp = high_resolution_clock::now();
+    //memory_frontier += frame_size;
+    
+    const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
+    if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK){
+      return;
+    }
+    
+    //time_point<high_resolution_clock> tp = high_resolution_clock::now();
 
-        BMDTimeValue decklink_hardware_timestamp;
+    /*BMDTimeValue decklink_hardware_timestamp;
         BMDTimeValue decklink_time_in_frame;
         BMDTimeValue decklink_ticks_per_frame;
         HRESULT ret;
@@ -518,15 +547,10 @@ void Playback::ScheduleNextFrame(bool prerolling)
             return;
         }
 
-        /* IMPORTANT: store the scheduled fram timestamps */
-        //scheduled_timestamp_cpu.push_back(tp);
-        scheduled_timestamp_decklink.push_back(decklink_hardware_timestamp);
+	//scheduled_timestamp_cpu.push_back(tp);
+        scheduled_timestamp_decklink.push_back(decklink_hardware_timestamp);*/
 
         m_totalFramesScheduled += 1;
-    }
-    else {
-        m_running = false;
-    }
 }
 
 HRESULT Playback::CreateFrame(IDeckLinkVideoFrame** frame, void (*fillFunc)(IDeckLinkVideoFrame*))
@@ -654,14 +678,13 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
     void *frameBytes = NULL;
     completedFrame->GetBytes(&frameBytes);
 
-    switch (result) {
+    /*switch (result) {
         case bmdOutputFrameCompleted:
         {
             Chunk chunk((uint8_t*)frameBytes, completedFrame->GetRowBytes() * completedFrame->GetHeight());
             RGBImage img(chunk, completedFrame->GetWidth(), completedFrame->GetHeight());
 
-            /* IMPORTANT: print timestamps for fram was completed */
-            // if (m_logfile.is_open()) {
+                   // if (m_logfile.is_open()) {
             //     m_logfile   << m_totalFramesCompleted << ","
 	    // 	  //<< barcodes.first << "," << barcodes.second << ","
             //                 << time_point_cast<microseconds>(scheduled_timestamp_cpu.front()).time_since_epoch().count() << ","
@@ -694,7 +717,7 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
         }
         case bmdOutputFrameDisplayedLate:
             std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
-	    std::cout << decklink_frame_completed_timestamp << '\n';	    
+	    std::cout << decklink_frame_completed_timestamp << ' ' << decklink_hardware_timestamp << '\n';	    
 
             //throw std::runtime_error("Frame Displayed Late.");
             break;
@@ -711,9 +734,22 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
             std::cerr << "Error in ScheduledFrameCompleted" << std::endl;
             throw std::runtime_error("Error in ScheduledFrameCompleted");
             break;
+    }*/
+
+    if (decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp > 51000) {
+      std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
+      std::cout << "Timestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
     }
+    else if (decklink_hardware_timestamp - prev_decklink_hardware_timestamp > 51000) {
+      std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
+      std::cout << "Hardware timestamp delay: " << decklink_hardware_timestamp - prev_decklink_hardware_timestamp << std::endl;
+    }
+
     completedFrame->Release();
     ++m_totalFramesCompleted;
+
+    prev_decklink_frame_completed_timestamp = decklink_frame_completed_timestamp;
+    prev_decklink_hardware_timestamp = decklink_hardware_timestamp;
 
     ScheduleNextFrame(false);
 

@@ -50,10 +50,14 @@ public:
 
     int                     m_framesDelay;
     int                     m_bitrate;
+    int                     m_framerate;
 
     const char*             m_videoOutputFile;
     const char*             m_logFilename;
-    
+  
+    char*                   m_beforeFilename;
+    char*                   m_afterFilename;
+  
 private:
     char*                   m_deckLinkName;
     char*                   m_displayModeName;

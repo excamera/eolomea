@@ -58,21 +58,21 @@ int main(int argc, char **argv)
         
         // convert to yuv422p
         auto bgra2yuv_t1 = std::chrono::high_resolution_clock::now();
-        H264_degrader::bgra2yuv422p(input_buffer.get(), yuv_input, width, height);
+        degrader.bgra2yuv422p(input_buffer.get(), degrader.encoder_frame, width, height);
         auto bgra2yuv_t2 = std::chrono::high_resolution_clock::now();
         auto bgra2yuv_time = std::chrono::duration_cast<std::chrono::duration<double>>(bgra2yuv_t2 - bgra2yuv_t1);
         std::cout << "bgra2yuv_time " << bgra2yuv_time.count() << "\n";
         
         // degrade
         auto degrade_t1 = std::chrono::high_resolution_clock::now();
-        degrader.degrade(yuv_input, yuv_output);
+        degrader.degrade(degrader.encoder_frame, degrader.decoder_frame);
         auto degrade_t2 = std::chrono::high_resolution_clock::now(); 
         auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
         std::cout << degrade_time.count() << "\n";
 
         // convert to bgra and output
         auto yuv2bgra_t1 = std::chrono::high_resolution_clock::now();
-        H264_degrader::yuv422p2bgra(yuv_output, output_buffer.get(), width, height);
+        degrader.yuv422p2bgra(degrader.encoder_frame, output_buffer.get(), width, height);
         auto yuv2bgra_t2 = std::chrono::high_resolution_clock::now();
         auto yuv2bgra_time = std::chrono::duration_cast<std::chrono::duration<double>>(yuv2bgra_t2 - yuv2bgra_t1);
         std::cout << "yuv2bgra_time " << yuv2bgra_time.count() << "\n";

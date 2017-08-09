@@ -3,7 +3,7 @@
 #include <cstring>
 #include <vector>
 #include <mutex>
-
+#include <chrono>
 #include "h264_degrader.hh"
 
 #define PIX(x) (x < 0 ? 0 : (x > 255 ? 255 : x))
@@ -12,6 +12,7 @@ extern "C" {
 //#include <stdio.h>
 //#include <stdlib.h>
 //#include <string.h>
+#include <libswscale/swscale.h>
 #include "libavcodec/avcodec.h"
 #include "libavutil/opt.h"
 #include "libavutil/frame.h"
@@ -20,71 +21,22 @@ extern "C" {
 #include "libavutil/mathematics.h"
 }
 
-void H264_degrader::bgra2yuv422p(uint8_t* input, uint8_t** output, size_t width, size_t height){
-    // https://www.fourcc.org/fccyvrgb.php
-
-    // Y-plane
-    for(size_t y = 0; y < height; y++){
-        for(size_t x = 0; x < width; x++){
-            size_t offset = 4*(y*width + x);
-            uint16_t b = input[offset + 0];
-            uint16_t g = input[offset + 1];
-            uint16_t r = input[offset + 2];
-
-            uint16_t Y = 0.098*b + 0.504*g + 0.257*r + 16;
-            output[0][y*width + x] = PIX(Y);
-        }
-    }
-
-    // U and Y planes
-    for(size_t y = 0; y < height; y++){
-        for(size_t x = 0; x < width; x+=2){
-            size_t offset = 4*(y*width + x);
-            int16_t b1 = input[offset + 0];
-            int16_t g1 = input[offset + 1];
-            int16_t r1 = input[offset + 2];
-
-            int16_t b2 = input[offset + 4];
-            int16_t g2 = input[offset + 5];
-            int16_t r2 = input[offset + 6];
-
-            int16_t cb1 = 0.439*b1 - 0.291*g1 - 0.148*r1 + 128;
-            int16_t cb2 = 0.439*b2 - 0.291*g2 - 0.148*r2 + 128;
-            int16_t cb = (cb1 + cb2) / 2;
-            output[1][y*width/2 + x/2] = PIX(cb); 
-
-            int16_t cr1 = -0.071*b1 - 0.368*g1 + .439*r1 + 128;
-            int16_t cr2 = -0.071*b2 - 0.368*g2 + .439*r2 + 128;
-            int16_t cr = (cr1 + cr2) / 2;
-            output[2][y*width/2 + x/2] = PIX(cr);
-        }
-    }
+void H264_degrader::bgra2yuv422p(uint8_t* input, AVFrame* outputFrame, size_t width, size_t height){
+  //std::lock_guard<std::mutex> guard(degrader_mutex);
+  uint8_t * inData[1] = { input };
+  int inLinesize[1] = { 4*width };
+  
+  sws_scale(bgra2yuv422p_context, inData, inLinesize, 0, height, outputFrame->data, outputFrame->linesize);
 }
 
-void H264_degrader::yuv422p2bgra(uint8_t** input, uint8_t* output, size_t width, size_t height){
-    // https://www.fourcc.org/fccyvrgb.php
+void H264_degrader::yuv422p2bgra(AVFrame* inputFrame, uint8_t* output, size_t width, size_t height){
+  //std::lock_guard<std::mutex> guard(degrader_mutex);  
+  uint8_t * inData[3] = { inputFrame->data[0], inputFrame->data[1], inputFrame->data[2] };
+  int inLinesize[3] = { width, width/2, width/2 };
+  uint8_t * outputArray[1] = { output };
+  int outLinesize[1] = { 4*width };
 
-    // BGRA-packed
-    for(size_t y = 0; y < height; y++){
-        for(size_t x = 0; x < width; x++){
-            size_t offset = 4*(y*width + x);
-
-            int16_t Y = input[0][y*width + x];
-            int16_t u = input[1][y*width/2 + x/2];
-            int16_t v = input[2][y*width/2 + x/2];
-            
-            int16_t b = 1.164*(Y-16) + 2.018*(u-128);
-            output[offset] = PIX(b);
-
-            int16_t g = 1.164*(Y-16) - 0.391*(u-128) - 0.813*(v-128);
-            output[offset + 1] = PIX(g);
-
-            int16_t r = 1.164*(Y-16) + 1.596*(v-128);
-            output[offset + 2] = PIX(r);
-
-            output[offset + 3] = 255;
-        }
-    }
+  sws_scale(yuv422p2bgra_context, inData, inLinesize, 0, height, outputArray, outLinesize);
 }
 
 H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate) :
@@ -212,6 +164,25 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate) :
         std::cout << "AVPacket not allocated: decoder" << "\n";
         throw;
     }
+
+  bgra2yuv422p_context = sws_getContext(width, height,
+				    AV_PIX_FMT_BGRA, width, height,
+				    AV_PIX_FMT_YUV422P, 0, 0, 0, 0);
+  if (bgra2yuv422p_context == NULL) {
+    std::cout << "BGRA to YUV422P context not found\n";
+    throw;
+  }
+
+
+  yuv422p2bgra_context = sws_getContext(width, height,
+			    AV_PIX_FMT_YUV422P, width, height, 
+			    AV_PIX_FMT_BGRA, 0, 0, 0, 0);
+
+  if (yuv422p2bgra_context == NULL) {
+    std::cout << "BGRA to YUV422P context not found\n";
+    throw;
+  }
+
 }
 
 H264_degrader::~H264_degrader(){
@@ -227,41 +198,47 @@ H264_degrader::~H264_degrader(){
 
     av_packet_free(&decoder_packet);
     av_packet_free(&encoder_packet);
+
+    sws_freeContext(bgra2yuv422p_context);
+    sws_freeContext(yuv422p2bgra_context);
 }
 
-void H264_degrader::degrade(uint8_t **input, uint8_t **output){
+void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
 
     std::lock_guard<std::mutex> guard(degrader_mutex);
-    
+    auto infunction1 = std::chrono::high_resolution_clock::now();
     bool output_set = false;
 
-    if(av_frame_make_writable(encoder_frame) < 0){
+    auto make_writable1 = std::chrono::high_resolution_clock::now();
+    if(av_frame_make_writable(inputFrame) < 0){
         std::cout << "Could not make the frame writable" << "\n";
         throw;
     }
+    auto make_writable2 = std::chrono::high_resolution_clock::now();
+    auto make_writable_time = std::chrono::duration_cast<std::chrono::duration<double>>(make_writable2 - make_writable1);
+    std::cout << "make_writable_time " << make_writable_time.count() << "\n";
 
     // copy frame into buffer 
     // TODO(jremons) make faster
-    for(size_t y = 0; y < height; y++){
+    /*for(size_t y = 0; y < height; y++){
         for(size_t x = 0; x < width; x++){
-            encoder_frame->data[0][y*encoder_frame->linesize[0] + x] = input[0][y*width + x];
+            inputFrame->data[0][y*inputFrame->linesize[0] + x] = input[0][y*width + x];
         }
     }
     for(size_t y = 0; y < height/2; y++){
         for(size_t x = 0; x < width/2; x++){
-            encoder_frame->data[1][y*encoder_frame->linesize[1] + x] = input[1][y*width + x];
-            encoder_frame->data[2][y*encoder_frame->linesize[2] + x] = input[2][y*width + x];
+            inputFrame->data[1][y*inputFrame->linesize[1] + x] = input[1][y*width + x];
+            inputFrame->data[2][y*inputFrame->linesize[2] + x] = input[2][y*width + x];
         }
     }
-
+    */
     // encode frame
-    encoder_frame->pts = frame_count;
-    int ret = avcodec_send_frame(encoder_context, encoder_frame);
+    inputFrame->pts = frame_count;
+    int ret = avcodec_send_frame(encoder_context, inputFrame);
     if (ret < 0) {
         std::cout << "error sending a frame for encoding" << "\n";
         throw;
     }
-    
     std::shared_ptr<uint8_t> buffer;
     int buffer_size = 0;
     int count = 0;
@@ -321,7 +298,7 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output){
                 throw;                
             }
 
-            size_t ret2 = avcodec_receive_frame(decoder_context, decoder_frame);
+            size_t ret2 = avcodec_receive_frame(decoder_context, outputFrame);
             if (ret2 == AVERROR(EAGAIN) || ret2 == AVERROR_EOF){
                 continue;
             }
@@ -332,29 +309,38 @@ void H264_degrader::degrade(uint8_t **input, uint8_t **output){
             
             // copy output in output_buffer
             // TODO(jremmons) make faster
-            for(size_t y = 0; y < height; y++){
+            /*for(size_t y = 0; y < height; y++){
                 for(size_t x = 0; x < width; x++){
-                    output[0][y*width + x] = decoder_frame->data[0][y*decoder_frame->linesize[0] + x];
+                    output[0][y*width + x] = outputFrame->data[0][y*outputFrame->linesize[0] + x];
                 }
             }
             for(size_t y = 0; y < height/2; y++){
                 for(size_t x = 0; x < width/2; x++){
-                    output[1][y*width + x] = decoder_frame->data[1][y*decoder_frame->linesize[1] + x];
-                    output[2][y*width + x] = decoder_frame->data[2][y*decoder_frame->linesize[2] + x];
+                    output[1][y*width + x] = outputFrame->data[1][y*outputFrame->linesize[1] + x];
+                    output[2][y*width + x] = outputFrame->data[2][y*outputFrame->linesize[2] + x];
                 }
             }
+	    */
             output_set = true;
         }
     }
     av_packet_unref(decoder_packet);
 
     if(!output_set){
+        std::memset(outputFrame->data[0], 255, width*height);
+        std::memset(outputFrame->data[1], 128, width*height/2);
+        std::memset(outputFrame->data[2], 128, width*height/2);
+	
         // make white if output not set
-        std::memset(output[0], 255, width*height);
+        /*std::memset(output[0], 255, width*height);
         std::memset(output[1], 128, width*height/2);
         std::memset(output[2], 128, width*height/2);
+	*/
     }
 
     frame_count += 1;
+    auto infunction2 = std::chrono::high_resolution_clock::now();
+    auto infunction_time = std::chrono::duration_cast<std::chrono::duration<double>>(infunction2 - infunction1);
+    std::cout << "infunction_time " << infunction_time.count() << "\n";
 }
 

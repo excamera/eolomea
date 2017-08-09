@@ -3,6 +3,7 @@
 //#define __H264_DEGRADER_HH__
 
 extern "C" {
+#include <libswscale/swscale.h>
 #include "libavcodec/avcodec.h"
 #include "libavutil/frame.h"
 }
@@ -11,13 +12,17 @@ extern "C" {
 
 class H264_degrader{
 public:    
+
+    AVFrame *encoder_frame;
+    AVFrame *decoder_frame;
+
     H264_degrader(size_t _width, size_t _height, size_t _bitrate);
     ~H264_degrader();
 
-    static void bgra2yuv422p(uint8_t* input, uint8_t** output, size_t width, size_t height);
-    static void yuv422p2bgra(uint8_t** input, uint8_t* output, size_t width, size_t height);
+    void bgra2yuv422p(uint8_t* input, AVFrame* outputFrame, size_t width, size_t height);
+    void yuv422p2bgra(AVFrame* inputFrame, uint8_t* output, size_t width, size_t height);
     
-    void degrade(uint8_t **input, uint8_t **output);
+    void degrade(AVFrame *inputFrame, AVFrame *outputFrame);
 
 private:
     std::mutex degrader_mutex;
@@ -40,10 +45,10 @@ private:
     AVCodecParserContext *decoder_parser;
     
     AVPacket *encoder_packet;
-    AVFrame *encoder_frame;
-
     AVPacket *decoder_packet;
-    AVFrame *decoder_frame;
+
+    SwsContext *bgra2yuv422p_context;
+    SwsContext *yuv422p2bgra_context;
 };
 
 //#endif

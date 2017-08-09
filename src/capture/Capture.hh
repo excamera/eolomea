@@ -35,8 +35,9 @@ class DeckLinkCaptureDelegate : public IDeckLinkInputCallback
 public:
 
     int                 framesDelay;
+    int                 framerate;
 
-    DeckLinkCaptureDelegate(int framesDelay);
+    DeckLinkCaptureDelegate(int framesDelay, int framerate);
 
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, LPVOID *) { return E_NOINTERFACE; }
     virtual ULONG STDMETHODCALLTYPE AddRef(void);
