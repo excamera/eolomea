@@ -210,26 +210,11 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
 
     bool output_set = false;
 
-
     if(av_frame_make_writable(inputFrame) < 0){
         std::cout << "Could not make the frame writable" << "\n";
         throw;
     }
 
-    // copy frame into buffer 
-    // TODO(jremons) make faster
-    /*for(size_t y = 0; y < height; y++){
-        for(size_t x = 0; x < width; x++){
-            inputFrame->data[0][y*inputFrame->linesize[0] + x] = input[0][y*width + x];
-        }
-    }
-    for(size_t y = 0; y < height/2; y++){
-        for(size_t x = 0; x < width/2; x++){
-            inputFrame->data[1][y*inputFrame->linesize[1] + x] = input[1][y*width + x];
-            inputFrame->data[2][y*inputFrame->linesize[2] + x] = input[2][y*width + x];
-        }
-    }
-    */
     // encode frame
     inputFrame->pts = frame_count;
     int ret = avcodec_send_frame(encoder_context, inputFrame);
@@ -255,8 +240,7 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
             throw;
         }
 
-        // TODO(jremmons) memory allocation is slow
-        buffer = std::move(std::shared_ptr<uint8_t>(new uint8_t[encoder_packet->size + AV_INPUT_BUFFER_PADDING_SIZE]));
+        buffer = std::move(std::unique_ptr<uint8_t[]>(new uint8_t[encoder_packet->size + AV_INPUT_BUFFER_PADDING_SIZE]));
         buffer_size = encoder_packet->size;
         std::memcpy(buffer.get(), encoder_packet->data, encoder_packet->size);
         
@@ -305,20 +289,6 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
                 throw;
             }
             
-            // copy output in output_buffer
-            // TODO(jremmons) make faster
-            /*for(size_t y = 0; y < height; y++){
-                for(size_t x = 0; x < width; x++){
-                    output[0][y*width + x] = outputFrame->data[0][y*outputFrame->linesize[0] + x];
-                }
-            }
-            for(size_t y = 0; y < height/2; y++){
-                for(size_t x = 0; x < width/2; x++){
-                    output[1][y*width + x] = outputFrame->data[1][y*outputFrame->linesize[1] + x];
-                    output[2][y*width + x] = outputFrame->data[2][y*outputFrame->linesize[2] + x];
-                }
-            }
-	    */
             output_set = true;
         }
     }
@@ -328,12 +298,6 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
         std::memset(outputFrame->data[0], 255, width*height);
         std::memset(outputFrame->data[1], 128, width*height/2);
         std::memset(outputFrame->data[2], 128, width*height/2);
-	
-        // make white if output not set
-        /*std::memset(output[0], 255, width*height);
-        std::memset(output[1], 128, width*height/2);
-        std::memset(output[2], 128, width*height/2);
-	*/
     }
 
     frame_count += 1;

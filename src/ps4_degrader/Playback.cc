@@ -93,9 +93,7 @@ const size_t bitrate = (2<<20);
 const size_t quantization = 32;
 
 static uint8_t *previousFrame = new uint8_t[frame_size];
-
-static uint8_t *yuv_input[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
-static uint8_t *yuv_output[] = {new uint8_t[frame_size/4], new uint8_t[frame_size/8], new uint8_t[frame_size/8]};
+std::thread runner;
 
 void sigfunc(int signum)
 {
@@ -105,56 +103,6 @@ void sigfunc(int signum)
     pthread_cond_signal(&sleepCond);
 }
 
-/*
-int main(int argc, char *argv[])
-{
-    int             exitStatus = 1;
-    std::unique_ptr<ChildProcess> command_process;
-
-    pthread_mutex_init(&sleepMutex, NULL);
-    pthread_cond_init(&sleepCond, NULL);
-
-    signal(SIGINT, sigfunc);
-    signal(SIGTERM, sigfunc);
-    signal(SIGHUP, sigfunc);
-
-    Playback* generator = nullptr;
-    std::cerr << "Loading file...";
-
-    if(argc != 5){
-      std::cout << "Wrong number of args\n";
-      return -1;
-    }
-
-    BMDVideoOutputFlags m_outputFlags(bmdVideoOutputFlagDefault);
-    BMDPixelFormat m_pixelFormat;
-    switch(atoi(argv[3]))
-    {
-      case 0: m_pixelFormat = bmdFormat8BitYUV; break;
-      case 1: m_pixelFormat = bmdFormat10BitYUV; break;
-      case 2: m_pixelFormat = bmdFormat10BitRGB; break;
-      case 3: m_pixelFormat = bmdFormat8BitBGRA; break;
-
-      default:
-	fprintf(stderr, "Invalid argument: Pixel format %d is not valid", atoi(argv[3]));
-	return -1;
-    }
-
-    std::list<uint8_t*>     output;
-    std::mutex              output_mutex;
-    
-    generator = new Playback(atoi(argv[1]), atoi(argv[2]), m_outputFlags, m_pixelFormat, argv[4], output, output_mutex);
-
-    std::cerr << "done!";
-
-    generator->Run();
-    exitStatus = 0;
-    generator->Release();
-
-    return exitStatus;
-}
-*/
-
 Playback::~Playback()
 {
   delete degrader;
@@ -162,6 +110,7 @@ Playback::~Playback()
   close(beforeFile);
   close(afterFile);
   t.join();
+  runner.join();
 }
 
 Playback::Playback(int m_deckLinkIndex,
@@ -226,24 +175,26 @@ void Playback::WriteToDisk()
       std::lock_guard<std::mutex> rec_guard(record_mutex);
       rec_size = record.size();
     }
-    if (rec_size != 0) {
-      {
-	std::lock_guard<std::mutex> rec_guard(record_mutex);
-	beforeFrame = record.front().first;
-	afterFrame = record.front().second;
-	record.pop();
-      }
-      size_t ret = write(beforeFile, beforeFrame, frame_size);
+    if (rec_size > 0) {
+        {
+            std::lock_guard<std::mutex> rec_guard(record_mutex);
+            beforeFrame = record.front().first;
+            afterFrame = record.front().second;
+            record.pop();
+        }
+        size_t ret = write(beforeFile, beforeFrame, frame_size);
+        if (ret < 0) {
+            std::cout << "Cannot write to first file\n";
+        }
+        ret = write(afterFile, afterFrame, frame_size);
       if (ret < 0) {
-	std::cout << "Cannot write to first file\n";
+          std::cout << "Cannot write to second file\n";
       }
-      ret = write(afterFile, afterFrame, frame_size);
-      if (ret < 0) {
-	std::cout << "Cannot write to second file\n";
-      }
+      delete[] beforeFrame;
+      delete[] afterFrame;
     }
     else {
-      usleep(100);
+      usleep(10000);
     }
   }
 }
@@ -341,34 +292,10 @@ bool Playback::Run()
     // Start
     StartRunning();
 
-    //size_t size;
-    while ( !do_exit ) {
-      // {
-      // 	std::lock_guard<std::mutex> guard(output_mutex);
-      // 	size = output.size();
-      // }
-      
-      // if (size < 120) {
-      // 	uint8_t i1 = (uint8_t) rand() % 256;
-      // 	uint8_t i2 = (uint8_t) rand() % 256;
-      // 	uint8_t i3 = (uint8_t) rand() % 256;	
-      // 	frame = new uint8_t[1920*1080*4];
-      // 	for (int i = 0; i < 1920*1080; ++i) {
-      // 	  frame[4*i] = i1;
-      // 	  frame[4*i+1] = i2;
-      // 	  frame[4*i+2] = i3;
-      // 	  frame[4*i+3] = (uint8_t) 255;
-      // 	}
-	
-      // 	{
-      // 	  std::lock_guard<std::mutex> guard(output_mutex);
-      // 	  output.push_back(frame);
-      // 	}
-      // }
-      
+    while ( !do_exit ) { 
+        usleep(1000);
     }
 
-    printf("\n");
     m_running = false;
 
 bail:
@@ -441,8 +368,16 @@ void Playback::StartRunning()
     //for (unsigned i = 0; i < m_framesPerSecond; i++)
     //for (unsigned i = 0; i < 9; i++)
     //for (unsigned i = 0; i < (unsigned) framesDelay; i++)
-    ScheduleNextFrame(true);
-
+    
+    runner = std::move(std::thread(
+                                   [this](){ 
+                                       while(true){
+                                           ScheduleNextFrame(false);
+                                           usleep(1000);
+                                       }
+                                   }
+                                   ));
+    
     m_deckLinkOutput->StartScheduledPlayback(0, m_frameTimescale, 1.0);
 
     m_running = true;
@@ -474,26 +409,31 @@ void Playback::ScheduleNextFrame(bool prerolling)
             return;
     }
 
-    //void* frameBytes = NULL;
-    IDeckLinkMutableVideoFrame* newFrame;
+    uint8_t* pulledFrame = NULL;
+    uint8_t* degradedFrame = NULL;
+    std::lock_guard<std::mutex> guard(output_mutex);	
+    if (output.size() >= (unsigned) framesDelay) {
+      pulledFrame = output.front();
+      degradedFrame = new uint8_t[frame_size];
+      output.pop_front();
+    }
+    else {
+        return;
+    }    
+ 
+    IDeckLinkMutableVideoFrame* newFrame = NULL;
     int bytesPerPixel = GetBytesPerPixel(m_pixelFormat);
     HRESULT result = m_deckLinkOutput->CreateVideoFrame(m_frameWidth, m_frameHeight,
-                                                                              m_frameWidth * bytesPerPixel,
-                                                                              m_pixelFormat, bmdFrameFlagDefault, &newFrame);
+                                                        m_frameWidth * bytesPerPixel,
+                                                        m_pixelFormat, bmdFrameFlagDefault, &newFrame);
+    
     if (result != S_OK) {
         fprintf(stderr, "Failed to create video frame\n");
         return;
     }
-
     newFrame->GetBytes(&frameBytes);
 
-    std::lock_guard<std::mutex> guard(output_mutex);	
-    //if (!output.empty()) {
-    if (output.size() >= (unsigned) framesDelay) {
-      uint8_t* pulledFrame = output.front();
-      uint8_t* degradedFrame = new uint8_t[frame_size];
-      output.pop_front();
-      
+    if (pulledFrame && degradedFrame) {
       auto convert_tot1 = std::chrono::high_resolution_clock::now();
       degrader->bgra2yuv422p((uint8_t*)pulledFrame, degrader->encoder_frame, width, height);
       auto convert_tot2 = std::chrono::high_resolution_clock::now();
@@ -502,56 +442,40 @@ void Playback::ScheduleNextFrame(bool prerolling)
       
       auto degrade_t1 = std::chrono::high_resolution_clock::now();
       degrader->degrade(degrader->encoder_frame, degrader->decoder_frame);
-      //usleep(10000);
       auto degrade_t2 = std::chrono::high_resolution_clock::now();
       auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
       std::cout << "degrade_time " << degrade_time.count() << "\n";
       
+
       auto convert_fromt1 = std::chrono::high_resolution_clock::now();
       degrader->yuv422p2bgra(degrader->decoder_frame, (uint8_t*)degradedFrame, width, height);
       auto convert_fromt2 = std::chrono::high_resolution_clock::now();
       auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
       std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
       
+      auto memcpyt1 = std::chrono::high_resolution_clock::now();
       std::memcpy(frameBytes, degradedFrame, frame_size);
       std::memcpy(previousFrame, degradedFrame, frame_size);
+      auto memcpyt2 = std::chrono::high_resolution_clock::now();
+      auto memcpytime = std::chrono::duration_cast<std::chrono::duration<double>>(memcpyt2 - memcpyt1);
+      std::cout << "memcpytime " << memcpytime.count() << "\n";
+      std::cout << "-----frame-----\n";
       
       {
-	std::lock_guard<std::mutex> rec_guard(record_mutex);		  
-	record.push(std::pair<uint8_t*, uint8_t*> (pulledFrame, degradedFrame));
+          std::lock_guard<std::mutex> rec_guard(record_mutex);		  
+          record.push(std::pair<uint8_t*, uint8_t*> (pulledFrame, degradedFrame));
       }
     }
     else {
       std::memcpy(frameBytes, previousFrame, frame_size);
-      //m_running = false;
     }      
       
-    //memory_frontier += frame_size;
-    
     const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
     if (m_deckLinkOutput->ScheduleVideoFrame(newFrame, frame_time, m_frameDuration, m_frameTimescale) != S_OK){
       return;
     }
-    
-    //time_point<high_resolution_clock> tp = high_resolution_clock::now();
 
-    /*BMDTimeValue decklink_hardware_timestamp;
-        BMDTimeValue decklink_time_in_frame;
-        BMDTimeValue decklink_ticks_per_frame;
-        HRESULT ret;
-        if ( (ret = m_deckLinkOutput->GetHardwareReferenceClock(ticks_per_second,
-                                                                &decklink_hardware_timestamp,
-                                                                &decklink_time_in_frame,
-                                                                &decklink_ticks_per_frame) ) != S_OK) {
-            std::cerr << "ScheduleNextFrame: could not get GetHardwareReferenceClock timestamp" << std::endl;
-            m_running = false;
-            return;
-        }
-
-	//scheduled_timestamp_cpu.push_back(tp);
-        scheduled_timestamp_decklink.push_back(decklink_hardware_timestamp);*/
-
-        m_totalFramesScheduled += 1;
+    m_totalFramesScheduled += 1;
 }
 
 HRESULT Playback::CreateFrame(IDeckLinkVideoFrame** frame, void (*fillFunc)(IDeckLinkVideoFrame*))
@@ -679,64 +603,6 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
     void *frameBytes = NULL;
     completedFrame->GetBytes(&frameBytes);
 
-    /*switch (result) {
-        case bmdOutputFrameCompleted:
-        {
-            Chunk chunk((uint8_t*)frameBytes, completedFrame->GetRowBytes() * completedFrame->GetHeight());
-            RGBImage img(chunk, completedFrame->GetWidth(), completedFrame->GetHeight());
-
-                   // if (m_logfile.is_open()) {
-            //     m_logfile   << m_totalFramesCompleted << ","
-	    // 	  //<< barcodes.first << "," << barcodes.second << ","
-            //                 << time_point_cast<microseconds>(scheduled_timestamp_cpu.front()).time_since_epoch().count() << ","
-            //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-            //                 << scheduled_timestamp_decklink.front()  << ","
-            //                 << decklink_hardware_timestamp << ","
-            //                 << decklink_frame_completed_timestamp
-            //                 << std::endl;
-
-            //     scheduled_timestamp_cpu.pop_front();
-            //     scheduled_timestamp_decklink.pop_front();
-            // }
-            // else {
-            //     std::cout   << m_totalFramesCompleted << ","
-	    // 	  //<< barcodes.first << "," << barcodes.second << ","
-            //                 << time_point_cast<microseconds>(scheduled_timestamp_cpu.front()).time_since_epoch().count() << ","
-            //                 << time_point_cast<microseconds>(tp).time_since_epoch().count() << ","
-            //                 << scheduled_timestamp_decklink.front()  << ","
-            //                 << decklink_hardware_timestamp << ","
-            //                 << decklink_frame_completed_timestamp
-            //                 << std::endl;
-
-            //     scheduled_timestamp_cpu.pop_front();
-            //     scheduled_timestamp_decklink.pop_front();
-            // }
-
-            //std::cout << "Frame #" << m_totalFramesCompleted << " on time." << std::endl;
-	    std::cout << decklink_frame_completed_timestamp << '\n';	    
-            break;
-        }
-        case bmdOutputFrameDisplayedLate:
-            std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
-	    std::cout << decklink_frame_completed_timestamp << ' ' << decklink_hardware_timestamp << '\n';	    
-
-            //throw std::runtime_error("Frame Displayed Late.");
-            break;
-        case bmdOutputFrameDropped:
-            std::cout  << "Warning: Frame " << m_totalFramesCompleted << " Dropped. " << std::endl;
-            m_totalFramesDropped++;
-            throw std::runtime_error("Frame Dropped");
-            break;
-        case bmdOutputFrameFlushed:
-            std::cout << "Warning: Frame " << m_totalFramesCompleted << " Flushed. " << std::endl;
-            throw std::runtime_error("Frame Flushed.");
-            break;
-        default:
-            std::cerr << "Error in ScheduledFrameCompleted" << std::endl;
-            throw std::runtime_error("Error in ScheduledFrameCompleted");
-            break;
-    }*/
-
     if (decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp > 51000) {
       std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
       std::cout << "Timestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
@@ -752,7 +618,7 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
     prev_decklink_frame_completed_timestamp = decklink_frame_completed_timestamp;
     prev_decklink_hardware_timestamp = decklink_hardware_timestamp;
 
-    ScheduleNextFrame(false);
+    //ScheduleNextFrame(false);
 
     return S_OK;
 }
