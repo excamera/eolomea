@@ -4,7 +4,6 @@
 AC_PREREQ([2.68])
 AC_INIT([captain-eo], [0.1], [excamera@cs.stanford.edu])
 AM_INIT_AUTOMAKE([foreign])
-AC_CONFIG_SRCDIR([src/display/display.hh])
 AC_CONFIG_HEADERS([config.h])
 
 # Add picky CXXFLAGS
@@ -39,9 +38,7 @@ AC_CONFIG_FILES([Makefile
          third_party/Makefile
          third_party/decklink/Makefile
          src/Makefile
-         src/playback/Makefile
-         src/capture/Makefile
-         src/display/Makefile
+         src/ps4_degrader/Makefile
          src/util/Makefile
 	 ])
 AC_OUTPUT

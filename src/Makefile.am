@@ -1,1 +1,1 @@
-SUBDIRS = display util playback capture
+SUBDIRS = util ps4_degrader

@@ -50,7 +50,6 @@ extern "C"{
 #include "DeckLinkAPI.h"
 #include "Capture.hh"
 #include "Config.hh"
-#include "display.hh"
 #include "chunk.hh"
 
 #include "Playback.hh"

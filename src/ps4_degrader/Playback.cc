@@ -54,7 +54,6 @@
 #include <memory>
 #include "Playback.hh"
 #include "exception.hh"
-#include "display.hh"
 #include "chunk.hh"
 #include "child_process.hh"
 #include "system_runner.hh"
