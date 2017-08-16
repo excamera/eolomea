@@ -75,7 +75,7 @@ bool                    do_exit = false;
 
 uint64_t memory_frontier = 0;
 const uint64_t prefetch_buffer_size = 1 << 30; // 1 GB
-const uint64_t prefetch_block_size = 1 << 28; // 0.0125 GB
+const uint64_t prefetch_block_size = 1 << 28; // 0.25 GB
 
 const unsigned long     kAudioWaterlevel = 48000;
 // std::ofstream debugf;
@@ -89,8 +89,6 @@ const size_t bytes_per_pixel = 4;
 const size_t frame_size = width*height*bytes_per_pixel;
 const AVPixelFormat pix_fmt = AV_PIX_FMT_YUV422P;
 
-const size_t bitrate = (2<<20);
-const size_t quantization = 32;
 
 static uint8_t *previousFrame = new uint8_t[frame_size];
 std::thread runner;
@@ -120,7 +118,10 @@ Playback::Playback(int m_deckLinkIndex,
 		   const char* m_videoInputFile,
 		   std::list<uint8_t*> &output,
 		   std::mutex &output_mutex,
+           int frame_rate,
 		   int framesDelay,
+           int bitrate,
+           int quantization,
 		   char* beforeFilename,
 		   char* afterFilename) :
   
@@ -149,7 +150,8 @@ Playback::Playback(int m_deckLinkIndex,
     m_logfile(),
     scheduled_timestamp_cpu(),
     scheduled_timestamp_decklink(),
-    framesDelay(framesDelay)
+    framesDelay(framesDelay),
+    frame_rate(frame_rate)
 {
     degrader = new H264_degrader(width, height, bitrate, quantization);
 
@@ -402,25 +404,26 @@ void Playback::StopRunning()
 
 void Playback::ScheduleNextFrame(bool prerolling)
 {
-    if (prerolling == false)
-    {
-        // If not prerolling, make sure that playback is still active
-        if (m_running == false)
-            return;
-    }
+    // if (prerolling == false)
+    // {
+    //     // If not prerolling, make sure that playback is still active
+    //     if (m_running == false)
+    //         return;
+    // }
 
     uint8_t* pulledFrame = NULL;
     uint8_t* degradedFrame = NULL;
-    std::lock_guard<std::mutex> guard(output_mutex);	
-    if (output.size() >= (unsigned) framesDelay) {
-      pulledFrame = output.front();
-      degradedFrame = new uint8_t[frame_size];
-      output.pop_front();
+    {
+        std::lock_guard<std::mutex> guard(output_mutex);	
+        if (output.size() >= (unsigned) framesDelay) {
+            pulledFrame = output.front();
+            degradedFrame = new uint8_t[frame_size];
+            output.pop_front();
+        }
+        else {
+            return;
+        }    
     }
-    else {
-        return;
-    }    
- 
     IDeckLinkMutableVideoFrame* newFrame = NULL;
     int bytesPerPixel = GetBytesPerPixel(m_pixelFormat);
     HRESULT result = m_deckLinkOutput->CreateVideoFrame(m_frameWidth, m_frameHeight,
@@ -434,34 +437,34 @@ void Playback::ScheduleNextFrame(bool prerolling)
     newFrame->GetBytes(&frameBytes);
 
     if (pulledFrame && degradedFrame) {
-      std::lock_guard<std::mutex> lg(degrader->degrader_mutex);
-
-      auto convert_tot1 = std::chrono::high_resolution_clock::now();
-      degrader->bgra2yuv422p((uint8_t*)pulledFrame, degrader->encoder_frame, width, height);
-      auto convert_tot2 = std::chrono::high_resolution_clock::now();
-      auto convert_totime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_tot2 - convert_tot1);
-      //std::cout << "convert_totime " << convert_totime.count() << "\n";
-      
-      auto degrade_t1 = std::chrono::high_resolution_clock::now();
-      degrader->degrade(degrader->encoder_frame, degrader->decoder_frame);
-      auto degrade_t2 = std::chrono::high_resolution_clock::now();
-      auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
-      //std::cout << "degrade_time " << degrade_time.count() << "\n";
-      
-
-      auto convert_fromt1 = std::chrono::high_resolution_clock::now();
-      degrader->yuv422p2bgra(degrader->decoder_frame, (uint8_t*)degradedFrame, width, height);
-      auto convert_fromt2 = std::chrono::high_resolution_clock::now();
-      auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
-      //std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
-      
-      auto memcpyt1 = std::chrono::high_resolution_clock::now();
+      {
+          std::lock_guard<std::mutex> lg(degrader->degrader_mutex);
+          
+          //auto convert_tot1 = std::chrono::high_resolution_clock::now();
+          degrader->bgra2yuv422p((uint8_t*)pulledFrame, degrader->encoder_frame, width, height);
+          // auto convert_tot2 = std::chrono::high_resolution_clock::now();
+          // auto convert_totime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_tot2 - convert_tot1);
+          // std::cout << "convert_totime " << convert_totime.count() << "\n";
+          
+          //auto degrade_t1 = std::chrono::high_resolution_clock::now();
+          degrader->degrade(degrader->encoder_frame, degrader->decoder_frame);
+          // auto degrade_t2 = std::chrono::high_resolution_clock::now();
+          // auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
+          // std::cout << "degrade_time " << degrade_time.count() << "\n";
+          
+          //auto convert_fromt1 = std::chrono::high_resolution_clock::now();
+          degrader->yuv422p2bgra(degrader->decoder_frame, (uint8_t*)degradedFrame, width, height);
+          //auto convert_fromt2 = std::chrono::high_resolution_clock::now();
+          //auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
+            //std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
+      }
+      //auto memcpyt1 = std::chrono::high_resolution_clock::now();
       std::memcpy(frameBytes, degradedFrame, frame_size);
       std::memcpy(previousFrame, degradedFrame, frame_size);
-      auto memcpyt2 = std::chrono::high_resolution_clock::now();
-      auto memcpytime = std::chrono::duration_cast<std::chrono::duration<double>>(memcpyt2 - memcpyt1);
-      //std::cout << "memcpytime " << memcpytime.count() << "\n";
-      //std::cout << "-----frame-----\n";
+      // auto memcpyt2 = std::chrono::high_resolution_clock::now();
+      // auto memcpytime = std::chrono::duration_cast<std::chrono::duration<double>>(memcpyt2 - memcpyt1);
+      // std::cout << "memcpytime " << memcpytime.count() << "\n";
+      // std::cout << "-----frame-----\n";
       
       {
           std::lock_guard<std::mutex> rec_guard(record_mutex);		  
@@ -605,13 +608,15 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
     void *frameBytes = NULL;
     completedFrame->GetBytes(&frameBytes);
 
-    if (decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp > 51000) {
-      std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
-      std::cout << "Timestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
+    if (decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp > 1000000*1.05*(1.0 / this->frame_rate)) {
+      std::cerr << "PLAYBACK (hw timestamp): Frame " << m_totalFramesCompleted << " Displayed Late. Expected (+/- 5%): " << 1000000*1.05*(1.0 / this->frame_rate) << std::endl;
+      std::cerr << "\tTimestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
+      std::cerr << "\tHardware timestamp delay: " << decklink_hardware_timestamp - prev_decklink_hardware_timestamp << std::endl;
     }
-    else if (decklink_hardware_timestamp - prev_decklink_hardware_timestamp > 51000) {
-      std::cout << "Warning: Frame " << m_totalFramesCompleted << " Displayed Late. " << std::endl;
-      std::cout << "Hardware timestamp delay: " << decklink_hardware_timestamp - prev_decklink_hardware_timestamp << std::endl;
+    else if (decklink_hardware_timestamp - prev_decklink_hardware_timestamp > 1000000*1.05*(1.0 / this->frame_rate)) {
+      std::cerr << "PLAYBACK (callback): Frame " << m_totalFramesCompleted << " Displayed Late. Expected (+/- 5%): " << 1000000*1.05*(1.0 / this->frame_rate) << std::endl;
+      std::cerr << "\tTimestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
+      std::cerr << "\tHardware timestamp delay: " << decklink_hardware_timestamp - prev_decklink_hardware_timestamp << std::endl;
     }
 
     completedFrame->Release();

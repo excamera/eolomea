@@ -63,7 +63,7 @@ bool BMDConfig::ParseArguments(int argc,  char** argv)
     int     ch;
     bool    displayHelp = false;
 
-    while ((ch = getopt(argc, argv, "d:hv:m:n:p:l:D:b:f:q:B:A:")) != -1)
+    while ((ch = getopt(argc, argv, "d:hm:p:l:D:b:f:q:B:A:")) != -1)
     {
         switch (ch)
         {
@@ -73,14 +73,6 @@ bool BMDConfig::ParseArguments(int argc,  char** argv)
 
             case 'm':
                 m_displayModeIndex = atoi(optarg);
-                break;
-
-            case 'v':
-                m_videoOutputFile = optarg;
-                break;
-
-            case 'n':
-                m_maxFrames = atoi(optarg);
                 break;
 
             case 'p':
@@ -96,6 +88,7 @@ bool BMDConfig::ParseArguments(int argc,  char** argv)
                         return false;
                 }
                 break;
+
             case 'l':
                 m_logFilename = optarg;
                 break;

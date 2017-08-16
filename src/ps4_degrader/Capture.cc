@@ -84,6 +84,7 @@ const size_t width = 1280;
 const size_t height = 720;
 const size_t bytes_per_pixel = 4;
 const size_t frame_size = width*height*bytes_per_pixel;
+size_t dropped_frame_count = 0;
 
 int bitrate, quantization;
 
@@ -184,8 +185,8 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
 
                         //reached end of bundle without outputting
                         if (display_frame_count % framerate == 0 && display_frame == false) {
-                            std::cout << "error dropped frame *capture*!\n"; 
-                            throw;
+                            std::cerr << "CAPTURE: dropped a frame (dropped_count=" <<dropped_frame_count << ")" << std::endl; 
+                            dropped_frame_count++;
                         }
                     }
                 }
@@ -398,7 +399,7 @@ int main(int argc, char *argv[])
                 }
         }
 
-    my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_beforeFilename, g_config.m_afterFilename);
+    my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, 60/g_config.m_framerate, g_config.m_framesDelay, g_config.m_bitrate, g_config.m_quantization,  g_config.m_beforeFilename, g_config.m_afterFilename);
 
     t = std::move( std::thread([&](){my_playback->Run();}) );
 

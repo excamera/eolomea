@@ -99,6 +99,7 @@ private:
     void WriteToDisk();
 
 public:
+    int frame_rate; 
     int framesDelay; 
     H264_degrader* degrader;
 
@@ -109,7 +110,10 @@ public:
 	     const char* m_videoInputFile,
 	     std::list<uint8_t*> &output,
 	     std::mutex &output_mutex,
+	     int frames_rate,
 	     int framesDelay,
+         int bitrate,
+         int quantization,
 	     char* beforeFilename,
 	     char* afterFilename);
 
