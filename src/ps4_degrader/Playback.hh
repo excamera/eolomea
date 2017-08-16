@@ -30,6 +30,7 @@
 
 #include "DeckLinkAPI.h"
 #include "file.hh"
+#include <atomic>
 #include <fstream>
 #include <list>
 #include <chrono>
@@ -99,7 +100,7 @@ private:
 
 public:
     int framesDelay; 
-    H264_degrader *degrader = NULL;
+    H264_degrader* degrader;
 
     Playback(int m_deckLinkIndex,
 	     int m_displayModeIndex,

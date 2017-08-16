@@ -12,11 +12,11 @@ extern "C" {
 
 class H264_degrader{
 public:    
-
     AVFrame *encoder_frame;
     AVFrame *decoder_frame;
-
-  H264_degrader(size_t _width, size_t _height, size_t _bitrate, size_t quantization);
+    std::mutex degrader_mutex;
+    
+    H264_degrader(size_t _width, size_t _height, size_t _bitrate, size_t quantization);
     ~H264_degrader();
 
     void bgra2yuv422p(uint8_t* input, AVFrame* outputFrame, size_t width, size_t height);
@@ -25,8 +25,6 @@ public:
     void degrade(AVFrame *inputFrame, AVFrame *outputFrame);
 
 private:
-    std::mutex degrader_mutex;
-
     const AVCodecID codec_id = AV_CODEC_ID_H264;
     const AVPixelFormat pix_fmt = AV_PIX_FMT_YUV422P;
 

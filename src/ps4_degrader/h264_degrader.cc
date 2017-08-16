@@ -9,9 +9,6 @@
 #define PIX(x) (x < 0 ? 0 : (x > 255 ? 255 : x))
 
 extern "C" {
-//#include <stdio.h>
-//#include <stdlib.h>
-//#include <string.h>
 #include <libswscale/swscale.h>
 #include "libavcodec/avcodec.h"
 #include "libavutil/opt.h"
@@ -22,7 +19,6 @@ extern "C" {
 }
 
 void H264_degrader::bgra2yuv422p(uint8_t* input, AVFrame* outputFrame, size_t width, size_t height){
-  //std::lock_guard<std::mutex> guard(degrader_mutex);
   uint8_t * inData[1] = { input };
   int inLinesize[1] = { 4*width };
   
@@ -30,7 +26,6 @@ void H264_degrader::bgra2yuv422p(uint8_t* input, AVFrame* outputFrame, size_t wi
 }
 
 void H264_degrader::yuv422p2bgra(AVFrame* inputFrame, uint8_t* output, size_t width, size_t height){
-  //std::lock_guard<std::mutex> guard(degrader_mutex);  
   uint8_t * inData[3] = { inputFrame->data[0], inputFrame->data[1], inputFrame->data[2] };
   int inLinesize[3] = { width, width/2, width/2 };
   uint8_t * outputArray[1] = { output };
@@ -205,9 +200,6 @@ H264_degrader::~H264_degrader(){
 }
 
 void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
-
-    std::lock_guard<std::mutex> guard(degrader_mutex);
-
     bool output_set = false;
 
     if(av_frame_make_writable(inputFrame) < 0){

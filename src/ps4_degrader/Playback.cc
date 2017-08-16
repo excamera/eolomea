@@ -434,32 +434,34 @@ void Playback::ScheduleNextFrame(bool prerolling)
     newFrame->GetBytes(&frameBytes);
 
     if (pulledFrame && degradedFrame) {
+      std::lock_guard<std::mutex> lg(degrader->degrader_mutex);
+
       auto convert_tot1 = std::chrono::high_resolution_clock::now();
       degrader->bgra2yuv422p((uint8_t*)pulledFrame, degrader->encoder_frame, width, height);
       auto convert_tot2 = std::chrono::high_resolution_clock::now();
       auto convert_totime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_tot2 - convert_tot1);
-      std::cout << "convert_totime " << convert_totime.count() << "\n";
+      //std::cout << "convert_totime " << convert_totime.count() << "\n";
       
       auto degrade_t1 = std::chrono::high_resolution_clock::now();
       degrader->degrade(degrader->encoder_frame, degrader->decoder_frame);
       auto degrade_t2 = std::chrono::high_resolution_clock::now();
       auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
-      std::cout << "degrade_time " << degrade_time.count() << "\n";
+      //std::cout << "degrade_time " << degrade_time.count() << "\n";
       
 
       auto convert_fromt1 = std::chrono::high_resolution_clock::now();
       degrader->yuv422p2bgra(degrader->decoder_frame, (uint8_t*)degradedFrame, width, height);
       auto convert_fromt2 = std::chrono::high_resolution_clock::now();
       auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
-      std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
+      //std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
       
       auto memcpyt1 = std::chrono::high_resolution_clock::now();
       std::memcpy(frameBytes, degradedFrame, frame_size);
       std::memcpy(previousFrame, degradedFrame, frame_size);
       auto memcpyt2 = std::chrono::high_resolution_clock::now();
       auto memcpytime = std::chrono::duration_cast<std::chrono::duration<double>>(memcpyt2 - memcpyt1);
-      std::cout << "memcpytime " << memcpytime.count() << "\n";
-      std::cout << "-----frame-----\n";
+      //std::cout << "memcpytime " << memcpytime.count() << "\n";
+      //std::cout << "-----frame-----\n";
       
       {
           std::lock_guard<std::mutex> rec_guard(record_mutex);		  

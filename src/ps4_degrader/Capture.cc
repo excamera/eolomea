@@ -185,6 +185,7 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
                         //reached end of bundle without outputting
                         if (display_frame_count % framerate == 0 && display_frame == false) {
                             std::cout << "error dropped frame *capture*!\n"; 
+                            throw;
                         }
                     }
                 }
@@ -399,8 +400,6 @@ int main(int argc, char *argv[])
 
     my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, g_config.m_framesDelay, g_config.m_beforeFilename, g_config.m_afterFilename);
 
-    degrade1 = new H264_degrader(width, height, g_config.m_bitrate*1000, quantization);
-    my_playback->degrader = degrade1;
     t = std::move( std::thread([&](){my_playback->Run();}) );
 
     // Block main thread until signal occurs
@@ -428,21 +427,29 @@ int main(int argc, char *argv[])
                     delegate->framesDelay = value;
                     break;
                 case 'b':
+                    degrade1 = my_playback->degrader;
                     degrade2 = new H264_degrader(width, height, value*1000, quantization);
-                    my_playback->degrader = degrade2;
+                    {
+                        std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
+                        my_playback->degrader = degrade2;
+                    }
                     delete degrade1;
-                    degrade1 = degrade2;
                     bitrate = value;
+
                     break;
                 case 'f':
                     delegate->framerate = value;
                     break;
                 case 'q':
+                    degrade1 = my_playback->degrader;
                     degrade2 = new H264_degrader(width, height, bitrate, value);
-                    my_playback->degrader = degrade2;
+                    {
+                        std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
+                        my_playback->degrader = degrade2;
+                    }
                     delete degrade1;
-                    degrade1 = degrade2;
                     quantization = value;
+
                     break;
                 }
         }
