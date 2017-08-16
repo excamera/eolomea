@@ -196,7 +196,7 @@ void Playback::WriteToDisk()
       delete[] afterFrame;
     }
     else {
-      usleep(10000);
+      usleep(1000);
     }
   }
 }
@@ -367,9 +367,6 @@ void Playback::StartRunning()
     m_totalFramesScheduled = 0;
     m_totalFramesDropped = 0;
     m_totalFramesCompleted = 0;
-    //for (unsigned i = 0; i < m_framesPerSecond; i++)
-    //for (unsigned i = 0; i < 9; i++)
-    //for (unsigned i = 0; i < (unsigned) framesDelay; i++)
     
     runner = std::move(std::thread(
                                    [this](){ 
@@ -381,7 +378,6 @@ void Playback::StartRunning()
                                    ));
     
     m_deckLinkOutput->StartScheduledPlayback(0, m_frameTimescale, 1.0);
-
     m_running = true;
 
     return;
@@ -404,13 +400,6 @@ void Playback::StopRunning()
 
 void Playback::ScheduleNextFrame(bool prerolling)
 {
-    // if (prerolling == false)
-    // {
-    //     // If not prerolling, make sure that playback is still active
-    //     if (m_running == false)
-    //         return;
-    // }
-
     uint8_t* pulledFrame = NULL;
     uint8_t* degradedFrame = NULL;
     {
@@ -440,32 +429,31 @@ void Playback::ScheduleNextFrame(bool prerolling)
       {
           std::lock_guard<std::mutex> lg(degrader->degrader_mutex);
           
-          //auto convert_tot1 = std::chrono::high_resolution_clock::now();
+          auto convert_tot1 = std::chrono::high_resolution_clock::now();
           degrader->bgra2yuv422p((uint8_t*)pulledFrame, degrader->encoder_frame, width, height);
-          // auto convert_tot2 = std::chrono::high_resolution_clock::now();
-          // auto convert_totime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_tot2 - convert_tot1);
-          // std::cout << "convert_totime " << convert_totime.count() << "\n";
+          auto convert_tot2 = std::chrono::high_resolution_clock::now();
+          auto convert_totime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_tot2 - convert_tot1);
+          std::cout << "convert_totime " << convert_totime.count() << "\n";
           
-          //auto degrade_t1 = std::chrono::high_resolution_clock::now();
+          auto degrade_t1 = std::chrono::high_resolution_clock::now();
           degrader->degrade(degrader->encoder_frame, degrader->decoder_frame);
-          // auto degrade_t2 = std::chrono::high_resolution_clock::now();
-          // auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
-          // std::cout << "degrade_time " << degrade_time.count() << "\n";
+          auto degrade_t2 = std::chrono::high_resolution_clock::now();
+          auto degrade_time = std::chrono::duration_cast<std::chrono::duration<double>>(degrade_t2 - degrade_t1);
+          std::cout << "degrade_time " << degrade_time.count() << "\n";
           
-          //auto convert_fromt1 = std::chrono::high_resolution_clock::now();
+          auto convert_fromt1 = std::chrono::high_resolution_clock::now();
           degrader->yuv422p2bgra(degrader->decoder_frame, (uint8_t*)degradedFrame, width, height);
-          //auto convert_fromt2 = std::chrono::high_resolution_clock::now();
-          //auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
-            //std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
+          auto convert_fromt2 = std::chrono::high_resolution_clock::now();
+          auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
+          std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
       }
-      //auto memcpyt1 = std::chrono::high_resolution_clock::now();
+      auto memcpyt1 = std::chrono::high_resolution_clock::now();
       std::memcpy(frameBytes, degradedFrame, frame_size);
       std::memcpy(previousFrame, degradedFrame, frame_size);
-      // auto memcpyt2 = std::chrono::high_resolution_clock::now();
-      // auto memcpytime = std::chrono::duration_cast<std::chrono::duration<double>>(memcpyt2 - memcpyt1);
-      // std::cout << "memcpytime " << memcpytime.count() << "\n";
-      // std::cout << "-----frame-----\n";
-      
+      auto memcpyt2 = std::chrono::high_resolution_clock::now();
+      auto memcpytime = std::chrono::duration_cast<std::chrono::duration<double>>(memcpyt2 - memcpyt1);
+      std::cout << "memcpytime " << memcpytime.count() << "\n";
+      std::cout << "-----frame-----\n";
       {
           std::lock_guard<std::mutex> rec_guard(record_mutex);		  
           record.push(std::pair<uint8_t*, uint8_t*> (pulledFrame, degradedFrame));
