@@ -211,7 +211,6 @@ bool Playback::Run()
     IDeckLinkConfiguration*         deckLinkConfiguration = NULL;
     IDeckLinkDisplayModeIterator*   displayModeIterator = NULL;
     char*                           displayModeName = NULL;
-    //uint8_t* frame = nullptr; 
 
     // Get the DeckLink device
     deckLinkIterator = CreateDeckLinkIteratorInstance();
@@ -372,7 +371,7 @@ void Playback::StartRunning()
                                    [this](){ 
                                        while(true){
                                            ScheduleNextFrame(false);
-                                           usleep(1000);
+                                           usleep(10);
                                        }
                                    }
                                    ));
@@ -406,13 +405,18 @@ void Playback::ScheduleNextFrame(bool prerolling)
         std::lock_guard<std::mutex> guard(output_mutex);	
         if (output.size() >= (unsigned) framesDelay) {
             pulledFrame = output.front();
+            auto mem_alloct1 = std::chrono::high_resolution_clock::now();
             degradedFrame = new uint8_t[frame_size];
+            auto mem_alloct2 = std::chrono::high_resolution_clock::now();
+            auto mem_alloctime = std::chrono::duration_cast<std::chrono::duration<double>>(mem_alloct2 - mem_alloct1);
+            std::cout << "mem_alloctime " << mem_alloctime.count() << "\n";
             output.pop_front();
         }
         else {
             return;
         }    
     }
+
     IDeckLinkMutableVideoFrame* newFrame = NULL;
     int bytesPerPixel = GetBytesPerPixel(m_pixelFormat);
     HRESULT result = m_deckLinkOutput->CreateVideoFrame(m_frameWidth, m_frameHeight,
@@ -603,6 +607,17 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
     }
     else if (decklink_hardware_timestamp - prev_decklink_hardware_timestamp > 1000000*1.05*(1.0 / this->frame_rate)) {
       std::cerr << "PLAYBACK (callback): Frame " << m_totalFramesCompleted << " Displayed Late. Expected (+/- 5%): " << 1000000*1.05*(1.0 / this->frame_rate) << std::endl;
+      std::cerr << "\tTimestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
+      std::cerr << "\tHardware timestamp delay: " << decklink_hardware_timestamp - prev_decklink_hardware_timestamp << std::endl;
+    }
+
+    if (decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp < 1000000*0.95*(1.0 / this->frame_rate)) {
+      std::cerr << "PLAYBACK (hw timestamp): Frame " << m_totalFramesCompleted << " Displayed early. Expected (+/- 5%): " << 1000000*0.95*(1.0 / this->frame_rate) << std::endl;
+      std::cerr << "\tTimestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
+      std::cerr << "\tHardware timestamp delay: " << decklink_hardware_timestamp - prev_decklink_hardware_timestamp << std::endl;
+    }
+    else if (decklink_hardware_timestamp - prev_decklink_hardware_timestamp < 1000000*0.95*(1.0 / this->frame_rate)) {
+      std::cerr << "PLAYBACK (callback): Frame " << m_totalFramesCompleted << " Displayed early. Expected (+/- 5%): " << 1000000*0.95*(1.0 / this->frame_rate) << std::endl;
       std::cerr << "\tTimestamp delay: " << decklink_frame_completed_timestamp - prev_decklink_frame_completed_timestamp << std::endl;
       std::cerr << "\tHardware timestamp delay: " << decklink_hardware_timestamp - prev_decklink_hardware_timestamp << std::endl;
     }

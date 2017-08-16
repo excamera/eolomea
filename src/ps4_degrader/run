@@ -31,14 +31,14 @@ for setting in settings:
                    '-p', '3',
                    '-v', 'video.raw',
                    '-l', '/dev/null'
-                   '-b', str(10 * 2**20),
+                   '-b', str(2**20),
                    '-f', str(60 / setting['frame_rate']),
                    '-q', str(setting['quantizer']),
                    '-D', str(setting['delay']),
                    '-B', 'beforeFile.raw',
-                   '-A', 'afterFile.raw'],)
-                   #                  stderr=open('cerr.log', 'w'),)
-                  #                  stdout=open('cout.log', 'w'))
+                   '-A', 'afterFile.raw'],
+#                   stderr=open('cerr.log', 'w'),
+                   stdout=open('cout.log', 'w'))
 
     time.sleep(experiment_time)
     p.kill()

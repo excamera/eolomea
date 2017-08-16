@@ -7,9 +7,8 @@
 #include <chrono>
 #include "h264_degrader.hh"
 
-#define PIX(x) (x < 0 ? 0 : (x > 255 ? 255 : x))
-
 extern "C" {
+#include <stdlib.h>
 #include <libswscale/swscale.h>
 #include "libavcodec/avcodec.h"
 #include "libavutil/opt.h"
@@ -42,7 +41,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, siz
     frame_count(0),
     quantization(quantization)
 {
-    buffer = std::move(std::unique_ptr<uint8_t[]>(new uint8_t[1<<23]));
+    buffer = std::move(std::unique_ptr<uint8_t[]>((uint8_t*)aligned_alloc(32,1<<23)));
 
     avcodec_register_all();
 
