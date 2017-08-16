@@ -1,3 +1,4 @@
+#include <cassert>
 #include <iostream>
 #include <memory>
 #include <cstring>
@@ -41,6 +42,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, siz
     frame_count(0),
     quantization(quantization)
 {
+    buffer = std::move(std::unique_ptr<uint8_t[]>(new uint8_t[1<<23]));
 
     avcodec_register_all();
 
@@ -214,7 +216,6 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
         std::cout << "error sending a frame for encoding" << "\n";
         throw;
     }
-    std::shared_ptr<uint8_t> buffer;
     int buffer_size = 0;
     int count = 0;
     while (ret >= 0) {
@@ -232,8 +233,8 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
             throw;
         }
 
-        buffer = std::move(std::unique_ptr<uint8_t[]>(new uint8_t[encoder_packet->size + AV_INPUT_BUFFER_PADDING_SIZE]));
         buffer_size = encoder_packet->size;
+        assert(encoder_packet->size + AV_INPUT_BUFFER_PADDING_SIZE >= buffer_size);
         std::memcpy(buffer.get(), encoder_packet->data, encoder_packet->size);
         
         if(count > 0){

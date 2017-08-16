@@ -33,6 +33,8 @@ private:
     const size_t bitrate;
     const size_t quantization;
     
+    std::unique_ptr<uint8_t[]> buffer;
+
     size_t frame_count;
 
     AVCodec *encoder_codec;
