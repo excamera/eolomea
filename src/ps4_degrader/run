@@ -3,7 +3,7 @@
 import subprocess as sub
 import time
 
-experiment_time = 10
+experiment_time = 120
 
 settings = [
     { 

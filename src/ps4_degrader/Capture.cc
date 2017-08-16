@@ -117,8 +117,7 @@ ULONG DeckLinkCaptureDelegate::Release(void)
 
 void DeckLinkCaptureDelegate::preview(void*, int) {}
 
-HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket*)
-{
+HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket*){
     void* frameBytes;
 
     BMDTimeValue decklink_hardware_timestamp;

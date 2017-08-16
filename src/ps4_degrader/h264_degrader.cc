@@ -85,6 +85,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, siz
     encoder_context->qmax = quantization;
     encoder_context->qcompress = 0.5;
     av_opt_set(encoder_context->priv_data, "tune", "zerolatency", 0); // forces no frame buffer delay (https://stackoverflow.com/questions/10155099/c-ffmpeg-h264-creating-zero-delay-stream)
+    av_opt_set(encoder_context->priv_data, "preset", "veryfast", 0);
 
     // decoder context parameter
     decoder_context->pix_fmt = pix_fmt;
@@ -101,6 +102,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, siz
     decoder_context->qmin = encoder_context->qmin;
     decoder_context->qmax = encoder_context->qmax;
     decoder_context->qcompress = encoder_context->qcompress;
+    av_opt_set(decoder_context->priv_data, "preset", "veryfast", 0);
 
     if(avcodec_open2(encoder_context, encoder_codec, NULL) < 0){
         std::cout << "could not open encoder" << "\n";;
@@ -209,6 +211,7 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
     }
 
     // encode frame
+    auto encode1 = std::chrono::high_resolution_clock::now();
     inputFrame->pts = frame_count;
     int ret = avcodec_send_frame(encoder_context, inputFrame);
     if (ret < 0) {
@@ -243,11 +246,16 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
         count += 1;
     }
     av_packet_unref(encoder_packet);
-    
+    auto encode2 = std::chrono::high_resolution_clock::now();
+    auto encodetime = std::chrono::duration_cast<std::chrono::duration<double>>(encode2 - encode1);
+    std::cout << "encodetime " << encodetime.count() << "\n";
+
+
     // decode frame
     uint8_t *data = buffer.get();
     int data_size = buffer_size;
     while(data_size > 0){
+        auto parse1 = std::chrono::high_resolution_clock::now();
         size_t ret1 = av_parser_parse2(decoder_parser,
                                        decoder_context, 
                                        &decoder_packet->data, 
@@ -265,7 +273,11 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
 
         data += ret1;
         data_size -= ret1;
+        auto parse2 = std::chrono::high_resolution_clock::now();
+        auto parsetime = std::chrono::duration_cast<std::chrono::duration<double>>(parse2 - parse1);
+        std::cout << "parsetime " << parsetime.count() << "\n";
 
+        auto decode1 = std::chrono::high_resolution_clock::now();
         if(decoder_packet->size > 0){
             if(avcodec_send_packet(decoder_context, decoder_packet) < 0){
                 std::cout << "error while decoding the buffer: send_packet" << "\n";
@@ -281,10 +293,13 @@ void H264_degrader::degrade(AVFrame *inputFrame, AVFrame *outputFrame){
                 throw;
             }
             
-            output_set = true;
         }
+        output_set = true;
+        auto decode2 = std::chrono::high_resolution_clock::now();
+        auto decodetime = std::chrono::duration_cast<std::chrono::duration<double>>(decode2 - decode1);
+        std::cout << "decodetime " << decodetime.count() << "\n";
     }
-    av_packet_unref(decoder_packet);
+    //av_packet_unref(decoder_packet);
 
     if(!output_set){
         std::memset(outputFrame->data[0], 255, width*height);

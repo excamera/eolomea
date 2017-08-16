@@ -371,7 +371,7 @@ void Playback::StartRunning()
                                    [this](){ 
                                        while(true){
                                            ScheduleNextFrame(false);
-                                           usleep(10);
+                                           usleep(1000);
                                        }
                                    }
                                    ));
