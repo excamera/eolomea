@@ -75,7 +75,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, siz
     encoder_context->height = height;
 
     encoder_context->bit_rate = bitrate;
-    encoder_context->bit_rate_tolerance = 0;
+    encoder_context->bit_rate_tolerance = 1000000;
 
     encoder_context->time_base = (AVRational){1, 20};
     encoder_context->framerate = (AVRational){60, 1};
@@ -85,7 +85,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, siz
     encoder_context->qmax = quantization;
     encoder_context->qcompress = 0.5;
     av_opt_set(encoder_context->priv_data, "tune", "zerolatency", 0); // forces no frame buffer delay (https://stackoverflow.com/questions/10155099/c-ffmpeg-h264-creating-zero-delay-stream)
-    av_opt_set(encoder_context->priv_data, "preset", "veryfast", 0);
+    av_opt_set(encoder_context->priv_data, "preset", "fast", 0);
 
     // decoder context parameter
     decoder_context->pix_fmt = pix_fmt;
@@ -102,7 +102,7 @@ H264_degrader::H264_degrader(size_t _width, size_t _height, size_t _bitrate, siz
     decoder_context->qmin = encoder_context->qmin;
     decoder_context->qmax = encoder_context->qmax;
     decoder_context->qcompress = encoder_context->qcompress;
-    av_opt_set(decoder_context->priv_data, "preset", "veryfast", 0);
+    av_opt_set(decoder_context->priv_data, "preset", "fast", 0);
 
     if(avcodec_open2(encoder_context, encoder_codec, NULL) < 0){
         std::cout << "could not open encoder" << "\n";;

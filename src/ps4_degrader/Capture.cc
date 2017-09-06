@@ -39,6 +39,7 @@
 #include <fstream>
 #include <chrono>
 #include <ctime>
+#include <csignal>
 #include <iostream>
 
 extern "C"{
@@ -92,6 +93,13 @@ H264_degrader *degrade1 = NULL, *degrade2 = NULL;
 
 static bool display_frame = true;
 static int display_frame_count = 0;
+
+static void sigfunc(int signum)
+{
+    if (signum == SIGINT || signum == SIGTERM){
+        g_do_exit = true;
+    }
+}
 
 DeckLinkCaptureDelegate::DeckLinkCaptureDelegate(int framesDelay, int framerate) :
     framesDelay(framesDelay),
@@ -153,42 +161,32 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
             else
                 {
 
-                    videoFrame->GetBytes(&frameBytes);
-                    {
-                        std::lock_guard<std::mutex> lg(output_mutex);
-	      
-                        //first frame in bundle
-                        if (display_frame_count % framerate == 0) {
-                            if(output.size() <= (unsigned) framesDelay){
-                                uint8_t* out_buffer = new uint8_t[frame_size];
-                                std::memcpy(out_buffer, frameBytes, frame_size);
-                                output.push_back((uint8_t*)out_buffer);
-                                display_frame = true;
-                            }
-                            else {
-                                display_frame = false;
-                            }
-                        }
-                        else {
-                            if (display_frame == false) {
-                                if(output.size() <= (unsigned) framesDelay){
-                                    uint8_t* out_buffer = new uint8_t[frame_size];
-                                    std::memcpy(out_buffer, frameBytes, frame_size);
-                                    output.push_back((uint8_t*)out_buffer);
-                                    display_frame = true;
-                                } 
-                            }
-                        }
+		  videoFrame->GetBytes(&frameBytes);
+		  if (display_frame_count % framerate == 0) {
+		    size_t output_size;
+		    { 
+		      std::lock_guard<std::mutex> lg(output_mutex);
+		      output_size = output.size();
+		    }
+		    
+		    if(output_size > (unsigned) framesDelay){
+		      std::cerr << "CAPTURE: dropped a frame (dropped_count=" << dropped_frame_count << ")" << std::endl; 
+		      dropped_frame_count++;
+		    }
+		    else{
+                
+		      uint8_t* out_buffer = new uint8_t[frame_size];
 
-                        ++display_frame_count;
-
-                        //reached end of bundle without outputting
-                        if (display_frame_count % framerate == 0 && display_frame == false) {
-                            std::cerr << "CAPTURE: dropped a frame (dropped_count=" <<dropped_frame_count << ")" << std::endl; 
-                            dropped_frame_count++;
-                        }
-                    }
-                }
+		      std::memcpy(out_buffer, frameBytes, frame_size);
+		      {
+		      	  std::lock_guard<std::mutex> lg(output_mutex);
+		      	  output.push_back((uint8_t*)out_buffer);
+		      }
+		    }
+		  }
+		  display_frame_count++;
+		  
+		}
             g_frameCount++;
         }
 
@@ -200,7 +198,6 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
 
     return S_OK;
 }
-
 
 HRESULT DeckLinkCaptureDelegate::VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDeckLinkDisplayMode *mode, BMDDetectedVideoInputFormatFlags formatFlags)
 {
@@ -237,14 +234,6 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFormatChanged(BMDVideoInputFormatChan
     return S_OK;
 }
 
-static void sigfunc(int signum)
-{
-    if (signum == SIGINT || signum == SIGTERM)
-        g_do_exit = true;
-
-    pthread_cond_signal(&g_sleepCond);
-}
-
 int main(int argc, char *argv[])
 {
     HRESULT                         result;
@@ -270,6 +259,7 @@ int main(int argc, char *argv[])
     std::thread t;
 
     int ret;
+    
 
     pthread_mutex_init(&g_sleepMutex, NULL);
     pthread_cond_init(&g_sleepCond, NULL);
@@ -399,7 +389,6 @@ int main(int argc, char *argv[])
         }
 
     my_playback = new Playback(0, 14, m_outputFlags, bmdFormat8BitBGRA, "/drive-nvme/video3_720p60.playback.raw", output, output_mutex, 60/g_config.m_framerate, g_config.m_framesDelay, g_config.m_bitrate, g_config.m_quantization,  g_config.m_beforeFilename, g_config.m_afterFilename);
-
     t = std::move( std::thread([&](){my_playback->Run();}) );
 
     // Block main thread until signal occurs
@@ -408,51 +397,58 @@ int main(int argc, char *argv[])
     if (result != S_OK)
         {
             fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
-            goto bail;
+           goto bail;
         }
 
     result = g_deckLinkInput->StartStreams();
     if (result != S_OK)
         goto bail;
 
-    while (!g_do_exit) 
-        {
-            char input;
-            int value;
-            std::cin >> input >> value;
-            switch(tolower(input))
-                {
-                case 'd':
-                    my_playback->framesDelay = value;
-                    delegate->framesDelay = value;
-                    break;
-                case 'b':
-                    degrade1 = my_playback->degrader;
-                    degrade2 = new H264_degrader(width, height, value*1000, quantization);
-                    {
-                        std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
-                        my_playback->degrader = degrade2;
-                    }
-                    delete degrade1;
-                    bitrate = value;
+    while (!g_do_exit) {
+        usleep(1000);
+    }
+        //     char input;
+        //     int value;
+        //     std::cin >> input >> value;
+        //     switch(tolower(input))
+        //         {
+        //         case 'd':
+        //             my_playback->framesDelay = value;
+        //             delegate->framesDelay = value;
+        //             break;
+        //         case 'b':
+        //             degrade1 = my_playback->degrader;
+        //             degrade2 = new H264_degrader(width, height, value*1000, quantization);
+        //             {
+        //                 std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
+        //                 my_playback->degrader = degrade2;
+        //             }
+        //             delete degrade1;
+        //             bitrate = value;
 
-                    break;
-                case 'f':
-                    delegate->framerate = value;
-                    break;
-                case 'q':
-                    degrade1 = my_playback->degrader;
-                    degrade2 = new H264_degrader(width, height, bitrate, value);
-                    {
-                        std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
-                        my_playback->degrader = degrade2;
-                    }
-                    delete degrade1;
-                    quantization = value;
+        //             break;
+        //         case 'f':
+        //             delegate->framerate = value;
+        //             break;
+        //         case 'q':
+        //             degrade1 = my_playback->degrader;
+        //             degrade2 = new H264_degrader(width, height, bitrate, value);
+        //             {
+        //                 std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
+        //                 my_playback->degrader = degrade2;
+        //             }
+        //             delete degrade1;
+        //             quantization = value;
 
-                    break;
-                }
-        }
+        //             break;
+        //         }
+        // }
+
+    delete my_playback;
+
+    fprintf(stderr, "Stopping Capture\n");
+    g_deckLinkInput->StopStreams();
+    g_deckLinkInput->DisableVideoInput();
 
     // All Okay.
     exitStatus = 0;
@@ -460,10 +456,6 @@ int main(int argc, char *argv[])
     pthread_mutex_lock(&g_sleepMutex);
     pthread_cond_wait(&g_sleepCond, &g_sleepMutex);
     pthread_mutex_unlock(&g_sleepMutex);
-
-    fprintf(stderr, "Stopping Capture\n");
-    g_deckLinkInput->StopStreams();
-    g_deckLinkInput->DisableVideoInput();
     
  bail:
     if (g_videoOutputFile != 0)

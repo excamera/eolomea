@@ -27,25 +27,43 @@ experiment_time = 120
 settings = [
     { 
         'frame_rate' : 30,
-        'quantizer' : 16,
-        'delay' : 10
-    },
-    { 
-        'frame_rate' : 30,
-        'quantizer' : 24,
+        'quantizer' : 28,
         'delay' : 1
-    },
+    },]
+
+'''
     { 
         'frame_rate' : 30,
         'quantizer' : 32,
         'delay' : 1
     },
     { 
-        'frame_rate' : 6,
-        'quantizer' : 16,
+        'frame_rate' : 30,
+        'quantizer' : 36,
+        'delay' : 1
+    },
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 38,
+        'delay' : 1
+    },
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 40,
+        'delay' : 1
+    },
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 41,
+        'delay' : 1
+    },
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 42,
         'delay' : 1
     },
 ]
+'''
 
 # create the output dir for the results
 if os.path.isdir(args.output_dir):
@@ -94,9 +112,11 @@ for setting in settings:
                    stderr=open(os.path.join(results_dir_path, 'cerr.log'), 'w'),
                    stdout=open(os.path.join(results_dir_path, 'cout.log'), 'w'))
 
+    print('  running')
     for i in range(10*experiment_time):
         if terminate_test:
             break
         time.sleep(1/10)
     
-    p.kill()
+    p.send_signal(signal.SIGINT)
+    print('  done!')

@@ -86,7 +86,6 @@ private:
     std::list<time_point<high_resolution_clock>> scheduled_timestamp_cpu;
     std::list<BMDTimeValue> scheduled_timestamp_decklink;
     
-    ~Playback();
 
     // Signal Generator Implementation
     void            StartRunning();
@@ -102,7 +101,9 @@ public:
     int frame_rate; 
     int framesDelay; 
     H264_degrader* degrader;
+    bool end;
 
+    ~Playback();
     Playback(int m_deckLinkIndex,
 	     int m_displayModeIndex,
 	     BMDVideoOutputFlags m_outputFlags,
