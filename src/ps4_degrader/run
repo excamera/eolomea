@@ -1,7 +1,26 @@
 #!/usr/bin/python3
 
+import argparse
+import datetime
+import json
+import os
 import subprocess as sub
 import time
+import signal
+import sys
+
+terminate_test = False
+def handler(signum, frame):
+    global terminate_test
+    terminate_test = True
+signal.signal(signal.SIGINT, handler)
+signal.signal(signal.SIGTERM, handler)
+
+parser = argparse.ArgumentParser(description='Process some integers.')
+parser.add_argument('output_dir', metavar='output_dir', type=str,
+                    help='path to directory where results should be stored')
+
+args = parser.parse_args()
 
 experiment_time = 120
 
@@ -9,11 +28,16 @@ settings = [
     { 
         'frame_rate' : 30,
         'quantizer' : 16,
+        'delay' : 10
+    },
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 24,
         'delay' : 1
     },
     { 
-        'frame_rate' : 15,
-        'quantizer' : 16,
+        'frame_rate' : 30,
+        'quantizer' : 32,
         'delay' : 1
     },
     { 
@@ -23,8 +47,38 @@ settings = [
     },
 ]
 
+# create the output dir for the results
+if os.path.isdir(args.output_dir):
+    print('{} already exists. '.format(args.output_dir) + \
+    'Please remove it before running the experiment')
+    sys.exit(0)
+
+os.makedirs(args.output_dir)
+
+# serialize all the settings for this experiment
+with open(os.path.join(args.output_dir, 'settings.json'), 'w') as f:
+    metadata = dict()
+    metadata['datetime'] = str(datetime.datetime.now())
+    metadata['experiment_time'] = experiment_time
+    metadata['settings'] = settings
+    f.write(json.dumps(metadata, indent=4, sort_keys=True))
+
 for setting in settings:
+    if terminate_test:
+        break
+
+    # wait for participant to be ready        
     print(setting)
+    input('Press [ENTER] to continue')
+
+    # open up dir for this particular set of params to put results in
+    results_dirname = 'f'+str(setting['frame_rate']) + '-' + \
+                  'q'+str(setting['quantizer']) + '-' + \
+                  'd'+ str(setting['delay'])
+    
+    results_dir_path = os.path.join(args.output_dir, results_dirname)
+    os.makedirs(results_dir_path)
+
     p = sub.Popen(['./ps4_degrader', 
                    '-d', '0', 
                    '-m', '14',
@@ -35,11 +89,14 @@ for setting in settings:
                    '-f', str(60 / setting['frame_rate']),
                    '-q', str(setting['quantizer']),
                    '-D', str(setting['delay']),
-                   '-B', 'beforeFile.raw',
-                   '-A', 'afterFile.raw'],
-#                   stderr=open('cerr.log', 'w'),
-                   stdout=open('cout.log', 'w'))
+                   '-B', os.path.join(results_dir_path, 'beforeFile.raw'),
+                   '-A', os.path.join(results_dir_path, 'afterFile.raw')],
+                   stderr=open(os.path.join(results_dir_path, 'cerr.log'), 'w'),
+                   stdout=open(os.path.join(results_dir_path, 'cout.log'), 'w'))
 
-    time.sleep(experiment_time)
+    for i in range(10*experiment_time):
+        if terminate_test:
+            break
+        time.sleep(1/10)
+    
     p.kill()
-    input(str(experiment_time) + ' seconds have elasped. Press [ENTER] to continue')
