@@ -127,74 +127,53 @@ void DeckLinkCaptureDelegate::preview(void*, int) {}
 
 HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket*){
     void* frameBytes;
-
-    BMDTimeValue decklink_hardware_timestamp;
-    BMDTimeValue decklink_time_in_frame;
-    BMDTimeValue decklink_ticks_per_frame;
-    HRESULT ret;
-    ret = g_deckLinkInput->GetHardwareReferenceClock(ticks_per_second,
-                                                     &decklink_hardware_timestamp,
-                                                     &decklink_time_in_frame,
-                                                     &decklink_ticks_per_frame);
-
-    BMDTimeValue decklink_frame_reference_timestamp;
-    BMDTimeValue decklink_frame_reference_duration;
-
-    if( (ret = videoFrame->GetHardwareReferenceTimestamp(ticks_per_second,
-                                                         &decklink_frame_reference_timestamp,
-                                                         &decklink_frame_reference_duration) ) != S_OK ) {
-
-        std::cerr << "GetHardwareReferenceTimestamp: could not get HardwareReferenceTimestamp for frame timestamp" << std::endl;
-        return ret;
-    }
-
-    // Handle Video Frame
+    
     if (videoFrame)
         {
             // If 3D mode is enabled we retreive the 3D extensions interface which gives.
             // us access to the right eye frame by calling GetFrameForRightEye() .
 
-            if (videoFrame->GetFlags() & bmdFrameHasNoInputSource)
-                {
-                    printf("Frame received (#%lu) - No input signal detected\n", g_frameCount);
-                }
-            else
-                {
+            if (videoFrame->GetFlags() & bmdFrameHasNoInputSource){
+                printf("Frame received (#%lu) - No input signal detected\n", g_frameCount);
+            }
+            else {
 
-		  videoFrame->GetBytes(&frameBytes);
-		  if (display_frame_count % framerate == 0) {
-		    size_t output_size;
-		    { 
-		      std::lock_guard<std::mutex> lg(output_mutex);
-		      output_size = output.size();
-		    }
+                videoFrame->GetBytes(&frameBytes);
+                if (display_frame_count % framerate == 0) {
+                    size_t output_size;
+                    { 
+                        std::lock_guard<std::mutex> lg(output_mutex);
+                        output_size = output.size();
+                    }
 		    
-		    if(output_size > (unsigned) framesDelay){
-		      std::cerr << "CAPTURE: dropped a frame (dropped_count=" << dropped_frame_count << ")" << std::endl; 
-		      dropped_frame_count++;
-		    }
-		    else{
-                
-		      uint8_t* out_buffer = new uint8_t[frame_size];
+                    if(output_size > (unsigned) framesDelay){
+                        std::cerr << "CAPTURE: dropped a frame (dropped_count=" << dropped_frame_count << ")" << std::endl; 
+                        dropped_frame_count++;
+                    }
+                    else{
+                        auto mem_alloct1 = std::chrono::high_resolution_clock::now();
+                        uint8_t* out_buffer = new uint8_t[frame_size];
+                        auto mem_alloct2 = std::chrono::high_resolution_clock::now();
+                        auto mem_alloctime = std::chrono::duration_cast<std::chrono::duration<double>>(mem_alloct2 - mem_alloct1);
+                        std::cout << "CAPTURE (mem alloc) " << mem_alloctime.count() << "\n";
 
-		      std::memcpy(out_buffer, frameBytes, frame_size);
-		      {
-		      	  std::lock_guard<std::mutex> lg(output_mutex);
-		      	  output.push_back((uint8_t*)out_buffer);
-		      }
-		    }
-		  }
-		  display_frame_count++;
+                        std::memcpy(out_buffer, frameBytes, frame_size);
+                        {
+                            std::lock_guard<std::mutex> lg(output_mutex);
+                            output.push_back((uint8_t*)out_buffer);
+                        }
+                    }
+                }
+                display_frame_count++;
 		  
-		}
+            }
             g_frameCount++;
         }
 
-    if (g_config.m_maxFrames > 0 && videoFrame && g_frameCount >= g_config.m_maxFrames)
-        {
-            g_do_exit = true;
-            pthread_cond_signal(&g_sleepCond);
-        }
+    if (g_config.m_maxFrames > 0 && videoFrame && g_frameCount >= g_config.m_maxFrames) {
+        g_do_exit = true;
+        pthread_cond_signal(&g_sleepCond);
+    }
 
     return S_OK;
 }
@@ -397,7 +376,7 @@ int main(int argc, char *argv[])
     if (result != S_OK)
         {
             fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
-           goto bail;
+            goto bail;
         }
 
     result = g_deckLinkInput->StartStreams();
@@ -407,42 +386,42 @@ int main(int argc, char *argv[])
     while (!g_do_exit) {
         usleep(1000);
     }
-        //     char input;
-        //     int value;
-        //     std::cin >> input >> value;
-        //     switch(tolower(input))
-        //         {
-        //         case 'd':
-        //             my_playback->framesDelay = value;
-        //             delegate->framesDelay = value;
-        //             break;
-        //         case 'b':
-        //             degrade1 = my_playback->degrader;
-        //             degrade2 = new H264_degrader(width, height, value*1000, quantization);
-        //             {
-        //                 std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
-        //                 my_playback->degrader = degrade2;
-        //             }
-        //             delete degrade1;
-        //             bitrate = value;
+    //     char input;
+    //     int value;
+    //     std::cin >> input >> value;
+    //     switch(tolower(input))
+    //         {
+    //         case 'd':
+    //             my_playback->framesDelay = value;
+    //             delegate->framesDelay = value;
+    //             break;
+    //         case 'b':
+    //             degrade1 = my_playback->degrader;
+    //             degrade2 = new H264_degrader(width, height, value*1000, quantization);
+    //             {
+    //                 std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
+    //                 my_playback->degrader = degrade2;
+    //             }
+    //             delete degrade1;
+    //             bitrate = value;
 
-        //             break;
-        //         case 'f':
-        //             delegate->framerate = value;
-        //             break;
-        //         case 'q':
-        //             degrade1 = my_playback->degrader;
-        //             degrade2 = new H264_degrader(width, height, bitrate, value);
-        //             {
-        //                 std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
-        //                 my_playback->degrader = degrade2;
-        //             }
-        //             delete degrade1;
-        //             quantization = value;
+    //             break;
+    //         case 'f':
+    //             delegate->framerate = value;
+    //             break;
+    //         case 'q':
+    //             degrade1 = my_playback->degrader;
+    //             degrade2 = new H264_degrader(width, height, bitrate, value);
+    //             {
+    //                 std::lock_guard<std::mutex> lg(degrade1->degrader_mutex);
+    //                 my_playback->degrader = degrade2;
+    //             }
+    //             delete degrade1;
+    //             quantization = value;
 
-        //             break;
-        //         }
-        // }
+    //             break;
+    //         }
+    // }
 
     delete my_playback;
 

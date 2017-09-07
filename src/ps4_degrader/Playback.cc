@@ -168,9 +168,11 @@ Playback::Playback(int m_deckLinkIndex,
 
 void Playback::WriteToDisk()
 {
+    bool first = true;
+    uint8_t *beforeFrame = NULL, *afterFrame = NULL;
+    uint8_t *beforeFrameTmp = NULL;
     while(true) {
         int rec_size;
-        uint8_t *beforeFrame, *afterFrame;
         {
             std::lock_guard<std::mutex> rec_guard(record_mutex);
             rec_size = record.size();
@@ -178,24 +180,33 @@ void Playback::WriteToDisk()
         if (rec_size > 0) {
             {
                 std::lock_guard<std::mutex> rec_guard(record_mutex);
-                beforeFrame = record.front().first;
+                beforeFrameTmp = record.front().first;
                 afterFrame = record.front().second;
                 record.pop();
             }
-            size_t ret = write(beforeFile, beforeFrame, frame_size);
-            if (ret < 0) {
-                std::cout << "Cannot write to first file\n";
+
+            if(!first){
+                size_t ret = write(beforeFile, beforeFrame, frame_size);
+                if (ret < 0) {
+                    std::cout << "Cannot write to first file\n";
+                }
+                ret = write(afterFile, afterFrame, frame_size);
+                if (ret < 0) {
+                    std::cout << "Cannot write to second file\n";
+                }
+                delete[] beforeFrame;
+                delete[] afterFrame;
             }
-            ret = write(afterFile, afterFrame, frame_size);
-            if (ret < 0) {
-                std::cout << "Cannot write to second file\n";
+            else{
+                first = false;
+                delete[] afterFrame;
             }
-            delete[] beforeFrame;
-            delete[] afterFrame;
+            beforeFrame = beforeFrameTmp;
         }
         else {
             usleep(1000);
             if(this->end){
+                delete[] beforeFrameTmp;
                 break;
             }
         }
@@ -459,8 +470,6 @@ void Playback::ScheduleNextFrame(bool prerolling)
             auto convert_fromt2 = std::chrono::high_resolution_clock::now();
             auto convert_fromtime = std::chrono::duration_cast<std::chrono::duration<double>>(convert_fromt2 - convert_fromt1);
             std::cout << "convert_fromtime " << convert_fromtime.count() << "\n";
-
-            std::memcpy(degradedFrame, pulledFrame, frame_size);
         }
         auto memcpyt1 = std::chrono::high_resolution_clock::now();
         std::memcpy(frameBytes, degradedFrame, frame_size);
@@ -475,7 +484,7 @@ void Playback::ScheduleNextFrame(bool prerolling)
     }
     else {
         std::memcpy(frameBytes, previousFrame, frame_size);
-    }      
+    }
       
     auto schedulet1 = std::chrono::high_resolution_clock::now();
     const unsigned int frame_time = m_totalFramesScheduled * m_frameDuration;
@@ -485,7 +494,6 @@ void Playback::ScheduleNextFrame(bool prerolling)
     auto schedulet2 = std::chrono::high_resolution_clock::now();
     auto scheduletime = std::chrono::duration_cast<std::chrono::duration<double>>(schedulet2 - schedulet1);
     std::cout << "scheduletime " << scheduletime.count() << "\n";
-
 
     m_totalFramesScheduled++;
 }

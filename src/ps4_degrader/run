@@ -24,28 +24,37 @@ args = parser.parse_args()
 
 experiment_time = 120
 
-settings = [
+settings = [ 
     { 
         'frame_rate' : 30,
-        'quantizer' : 28,
+        'quantizer' : 40,
         'delay' : 1
-    },]
+    },
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 26,
+        'delay' : 20
+    },
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 26,
+        'delay' : 20
+    },
 
-'''
     { 
         'frame_rate' : 30,
-        'quantizer' : 32,
+        'quantizer' : 33,
         'delay' : 1
     },
     { 
         'frame_rate' : 30,
-        'quantizer' : 36,
-        'delay' : 1
+        'quantizer' : 33,
+        'delay' : 10
     },
     { 
         'frame_rate' : 30,
-        'quantizer' : 38,
-        'delay' : 1
+        'quantizer' : 33,
+        'delay' : 30
     },
     { 
         'frame_rate' : 30,
@@ -54,16 +63,30 @@ settings = [
     },
     { 
         'frame_rate' : 30,
-        'quantizer' : 41,
-        'delay' : 1
+        'quantizer' : 40,
+        'delay' : 10
     },
     { 
         'frame_rate' : 30,
-        'quantizer' : 42,
+        'quantizer' : 40,
+        'delay' : 30
+    },
+    { 
+        'frame_rate' : 15,
+        'quantizer' : 26,
+        'delay' : 1
+    },
+    { 
+        'frame_rate' : 15,
+        'quantizer' : 33,
+        'delay' : 1
+    },
+    { 
+        'frame_rate' : 15,
+        'quantizer' : 40,
         'delay' : 1
     },
 ]
-'''
 
 # create the output dir for the results
 if os.path.isdir(args.output_dir):
