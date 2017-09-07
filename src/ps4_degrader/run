@@ -4,10 +4,11 @@ import argparse
 import datetime
 import json
 import os
+import random
 import subprocess as sub
-import time
 import signal
 import sys
+import time
 
 terminate_test = False
 def handler(signum, frame):
@@ -25,11 +26,6 @@ args = parser.parse_args()
 experiment_time = 20
 
 settings = [ 
-    { 
-        'frame_rate' : 30,
-        'quantizer' : 26,
-        'delay' : 1
-    },
     { 
         'frame_rate' : 30,
         'quantizer' : 26,
@@ -61,6 +57,14 @@ settings = [
         'delay' : 30
     }
 ]
+
+random.shuffle(settings)
+settings = [{ 
+    'frame_rate' : 30,
+    'quantizer' : 26,
+    'delay' : 1
+}] + settings
+
 
 # create the output dir for the results
 if os.path.isdir(args.output_dir):
