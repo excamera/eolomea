@@ -23,7 +23,7 @@ parser.add_argument('output_dir', metavar='output_dir', type=str,
 
 args = parser.parse_args()
 
-experiment_time = 20
+experiment_time = 120
 
 settings = [ 
     { 
@@ -38,6 +38,11 @@ settings = [
     },
     { 
         'frame_rate' : 30,
+        'quantizer' : 26,
+        'delay' : 60
+    },
+    { 
+        'frame_rate' : 30,
         'quantizer' : 33,
         'delay' : 15
     },
@@ -46,6 +51,11 @@ settings = [
         'quantizer' : 33,
         'delay' : 30
     },
+    {   
+        'frame_rate' : 30,
+        'quantizer' : 33,
+        'delay' : 60
+    },
     { 
         'frame_rate' : 30,
         'quantizer' : 40,
@@ -55,6 +65,11 @@ settings = [
         'frame_rate' : 30,
         'quantizer' : 40,
         'delay' : 30
+    }
+    { 
+        'frame_rate' : 30,
+        'quantizer' : 40,
+        'delay' : 60
     }
 ]
 
