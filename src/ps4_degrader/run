@@ -23,69 +23,69 @@ parser.add_argument('output_dir', metavar='output_dir', type=str,
 
 args = parser.parse_args()
 
-experiment_time = 120
+experiment_time = 30
 
 settings = [ 
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 26,
-        'delay' : 15
+        'delay' : 5
     },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 26,
-        'delay' : 30
+        'delay' : 10
     },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 26,
-        'delay' : 60
+        'delay' : 20
     },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 33,
         'delay' : 1
     },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 33,
-        'delay' : 15
+        'delay' : 5
     },
     {   
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 33,
-        'delay' : 30
+        'delay' : 10
     },
     {   
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 33,
-        'delay' : 60
+        'delay' : 20
     },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 40,
         'delay' : 1
     },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 40,
-        'delay' : 15
+        'delay' : 5
     },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 40,
-        'delay' : 30
-    }
+        'delay' : 10
+    },
     { 
-        'frame_rate' : 30,
+        'frame_rate' : 20,
         'quantizer' : 40,
-        'delay' : 60
+        'delay' : 20
     }
 ]
 
 random.shuffle(settings)
 settings = [{ 
-    'frame_rate' : 30,
+    'frame_rate' : 20,
     'quantizer' : 26,
     'delay' : 1
 }] + settings
@@ -107,6 +107,7 @@ with open(os.path.join(args.output_dir, 'settings.json'), 'w') as f:
     metadata['settings'] = settings
     f.write(json.dumps(metadata, indent=4, sort_keys=True))
 
+first = True
 for setting in settings:
     if terminate_test:
         break
@@ -117,8 +118,8 @@ for setting in settings:
 
     # open up dir for this particular set of params to put results in
     results_dirname = 'f'+str(setting['frame_rate']) + '-' + \
-                  'q'+str(setting['quantizer']) + '-' + \
-                  'd'+ str(setting['delay'])
+                      'q'+str(setting['quantizer']) + '-' + \
+                      'd'+ str(setting['delay'])
     
     results_dir_path = os.path.join(args.output_dir, results_dirname)
     os.makedirs(results_dir_path)
@@ -143,6 +144,13 @@ for setting in settings:
         if terminate_test:
             break
         time.sleep(1/10)
+
+    if first:
+       print('setting first to False')
+       time.sleep(30)
+       first = False
     
     p.send_signal(signal.SIGINT)
+    time.sleep(2)
+    p.kill()
     print('  done!')
