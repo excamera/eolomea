@@ -28,6 +28,7 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <list>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,6 +64,8 @@ using std::chrono::microseconds;
 
 std::queue<IDeckLinkVideoInputFrame*> frame_queue;
 std::mutex frame_queue_lock;
+
+std::list<high_resolution_clock::time_point> delay_queue;
 
 const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
 static BMDTimeScale prev_frame_recieved_time = (BMDTimeScale)0;
@@ -151,6 +154,8 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame
                         dropped_frame_count++;
                     }
                     else{
+                        delay_queue.push_back(std::chrono::high_resolution_clock::now());
+
                         auto mem_alloct1 = std::chrono::high_resolution_clock::now();
                         uint8_t* out_buffer = new uint8_t[frame_size];
                         auto mem_alloct2 = std::chrono::high_resolution_clock::now();

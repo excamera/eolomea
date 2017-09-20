@@ -27,6 +27,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <list>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -64,6 +65,8 @@ using std::chrono::time_point;
 using std::chrono::high_resolution_clock;
 using std::chrono::time_point_cast;
 using std::chrono::microseconds;
+
+extern std::list<high_resolution_clock::time_point> delay_queue;
 
 const BMDTimeScale ticks_per_second = (BMDTimeScale)1000000; /* microsecond resolution */
 
@@ -602,6 +605,13 @@ HRESULT Playback::ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, B
         completedFrame->Release();
         return S_OK;
     }
+
+    auto t1 = delay_queue.front();
+    delay_queue.pop_front();
+    
+    high_resolution_clock::time_point t2 = high_resolution_clock::now();
+    std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
+    std::cout << "frame delay" << time_span.count() << "\n";
 
     if ( (ret = m_deckLinkOutput->GetHardwareReferenceClock(ticks_per_second,
                                                             &decklink_hardware_timestamp,
